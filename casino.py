@@ -41,7 +41,7 @@ def calculate_score(value: int) -> tuple[int, str]:  # pylint: disable=too-many-
 
     if r1 == r2 == r3 == 4:
         return 400 - SPIN_COST, f"{reels_str} — JACKPOT! 🎉"
-    if r1 == r2 == r2 == 3:
+    if r1 == r2 == r3 == 3:
         return 100 - SPIN_COST, f"{reels_str} — Three lemons!"
     if r1 == r2 == r3 == 2:
         return 100 - SPIN_COST, f"{reels_str} — Three grapes!"
