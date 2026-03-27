@@ -1,5 +1,5 @@
 """Database layer — SQLAlchemy models and query helpers for the casino bot."""
-from sqlalchemy import create_engine, select, delete
+from sqlalchemy import create_engine, select, delete, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 DB_URL = "sqlite:///casino.db"
@@ -41,10 +41,10 @@ def get_or_create(user_id: int, username: str) -> int:
     with Session(engine) as s:
         player = s.get(Player, user_id)
         if player is None:
-            player = Player(user_id=user_id, username=username, balance=DEFAULT_BALANCE)
+            player = Player(user_id=user_id, username=username.lower(), balance=DEFAULT_BALANCE)
             s.add(player)
         else:
-            player.username = username
+            player.username = username.lower()
         s.commit()
         return player.balance
 
@@ -88,9 +88,21 @@ def transfer(from_id: int, to_id: int, amount: int) -> tuple[int, int]:
 def get_by_username(username: str) -> Player | None:
     """Look up a player by username (leading @ stripped)."""
     with Session(engine) as s:
+        needle = username.lstrip("@").lower()
         return s.scalars(
-            select(Player).where(Player.username == username.lstrip("@"))
+            select(Player).where(func.lower(Player.username) == needle)
         ).first()
+
+
+def credit(user_id: int, amount: int) -> int:
+    """Add amount to a specific player's balance unconditionally. Returns new balance."""
+    with Session(engine) as s:
+        player = s.get(Player, user_id)
+        if player is None:
+            raise ValueError("player_not_found")
+        player.balance += amount
+        s.commit()
+        return player.balance
 
 
 def daily_deposit(amount: int) -> int:

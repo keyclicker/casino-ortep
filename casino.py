@@ -18,7 +18,7 @@
 #                          total: $9.000
 
 SPIN_COST = 10
-DAILY_DEPOSIT = 20
+HOURLY_DEPOSIT = 5
 
 SYMBOLS = {1: "BAR", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
