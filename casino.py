@@ -31,8 +31,8 @@ SPIN_COST = 10
 HOURLY_DEPOSIT = 10
 
 TIER_BALANCE_CAP = 500   # balance threshold per tier step
-TIER_COST_MULT = 2       # cost multiplier per tier (×2 per step)
-TIER_WIN_MULT = 1.8      # win multiplier per tier (×1.8 per step)
+TIER_COST_MULT = 1.5       # cost multiplier per tier (×1.5 per step)
+TIER_WIN_MULT = 1.4      # win multiplier per tier (×1.4 per step)
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
