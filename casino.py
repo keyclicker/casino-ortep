@@ -52,9 +52,9 @@ def calculate_score(value: int) -> tuple[int, str]:  # pylint: disable=too-many-
     if sevens == 2:
         return 20 - SPIN_COST, f"{reels_str} — Two sevens!"
     if sevens == 1:
-        return 10 - SPIN_COST, f"{reels_str} — So close! 😤"
+        return 5 - SPIN_COST, f"{reels_str} — So close! 😤"
 
     if r1 == r2 or r2 == r3 or r1 == r3:
-        return 10 - SPIN_COST, f"{reels_str} — Pair!"
+        return 5 - SPIN_COST, f"{reels_str} — Pair!"
 
     return -SPIN_COST, f"{reels_str} — No luck this time."
