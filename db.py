@@ -2,7 +2,7 @@
 from sqlalchemy import create_engine, select, delete
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-DB_URL = "sqlite:///data/casino.db"
+DB_URL = "sqlite:///casino.db"
 DEFAULT_BALANCE = 100
 
 engine = create_engine(DB_URL)
