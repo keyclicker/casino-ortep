@@ -195,6 +195,23 @@ async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statement
     )
 
 
+async def cmd_stats(  # pylint: disable=unused-argument
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show the caller's win/loss stats."""
+    user = update.effective_user
+    _ensure_player(user)
+    won, lost = db.get_player_stats(user.id)
+    net = won - lost
+    sign = "+" if net >= 0 else "−"
+    await update.effective_message.reply_text(
+        f"📊 {_md_name(user)}\n"
+        f"Won: *${won}* · Lost: *${lost}*\n"
+        f"Net: *{sign}${abs(net)}*",
+        parse_mode="Markdown",
+    )
+
+
 # --- Admin/utility commands ---
 
 async def cmd_settopic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -276,6 +293,21 @@ async def cmd_casino(  # pylint: disable=unused-argument
                 f"🎰 Active casino locations:\n{lines}",
                 parse_mode="Markdown",
             )
+
+
+async def cmd_casinostats(  # pylint: disable=unused-argument
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show casino-wide win/loss totals."""
+    paid_out, collected = db.get_casino_stats()
+    net = collected - paid_out
+    sign = "+" if net >= 0 else "−"
+    await update.effective_message.reply_text(
+        f"🏦 Casino stats\n"
+        f"Paid out: *${paid_out}* · Collected: *${collected}*\n"
+        f"Net: *{sign}${abs(net)}*",
+        parse_mode="Markdown",
+    )
 
 
 # --- Admin commands ---
@@ -372,7 +404,9 @@ async def _post_init(app) -> None:
     await app.bot.set_my_commands([
         ("balance",    "Check your current balance"),
         ("give",       "Send coins to another player"),
-        ("casino",     "Show where the casino is active"),
+        ("stats",      "Show your win/loss statistics"),
+        ("casinostats", "Show casino win/loss totals"),
+        ("casino",      "Show where the casino is active"),
         ("settopic",   "Set this topic as the casino (admins only)"),
         ("unsettopic", "Remove the casino topic (admins only)"),
     ])
@@ -393,6 +427,8 @@ def main() -> None:
         CasinoFilter() & filters.Dice.SLOT_MACHINE & ~filters.FORWARDED, handle_slot
     ))
     app.add_handler(CommandHandler("balance", cmd_balance))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("casinostats", cmd_casinostats))
     app.add_handler(CommandHandler("give", cmd_give))
     app.add_handler(CommandHandler("settopic", cmd_settopic))
     app.add_handler(CommandHandler("unsettopic", cmd_unsettopic))

@@ -1,6 +1,9 @@
 """Database layer — SQLAlchemy models and query helpers for the casino bot."""
+from pathlib import Path
 from sqlalchemy import create_engine, select, delete, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+from alembic.config import Config
+from alembic import command
 
 DB_URL = "sqlite:///casino.db"
 DEFAULT_BALANCE = 100
@@ -19,6 +22,8 @@ class Player(Base):  # pylint: disable=too-few-public-methods
     user_id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(default="")
     balance: Mapped[int] = mapped_column(default=0)
+    total_won: Mapped[int] = mapped_column(default=0)
+    total_lost: Mapped[int] = mapped_column(default=0)
 
 
 class CasinoLocation(Base):  # pylint: disable=too-few-public-methods
@@ -30,8 +35,9 @@ class CasinoLocation(Base):  # pylint: disable=too-few-public-methods
 
 
 def init_db() -> None:
-    """Create all tables if they don't exist."""
-    Base.metadata.create_all(engine)
+    """Run all pending Alembic migrations."""
+    cfg = Config(Path(__file__).parent / "alembic.ini")
+    command.upgrade(cfg, "head")
 
 
 # --- Players ---
@@ -66,8 +72,29 @@ def apply_spin(user_id: int, net: int) -> tuple[bool, int]:
         if player is None or player.balance + net < 0:
             return False, (player.balance if player else 0)
         player.balance += net
+        if net > 0:
+            player.total_won += net
+        elif net < 0:
+            player.total_lost += abs(net)
         s.commit()
         return True, player.balance
+
+
+def get_player_stats(user_id: int) -> tuple[int, int] | None:
+    """Return (total_won, total_lost) for a player, or None if not found."""
+    with Session(engine) as s:
+        player = s.get(Player, user_id)
+        if player is None:
+            return None
+        return player.total_won, player.total_lost
+
+
+def get_casino_stats() -> tuple[int, int]:
+    """Return (total_paid_out, total_collected) across all players."""
+    with Session(engine) as s:
+        paid_out = s.scalar(select(func.sum(Player.total_won))) or 0
+        collected = s.scalar(select(func.sum(Player.total_lost))) or 0
+        return paid_out, collected
 
 
 def transfer(from_id: int, to_id: int, amount: int) -> tuple[int, int]:
