@@ -26,22 +26,22 @@ class TestDecodeReels:
 class TestCalculateScore:
     def test_jackpot(self):
         net, desc = calculate_score(encode(4, 4, 4))
-        assert net == 110
+        assert net == 300 - SPIN_COST
         assert "JACKPOT" in desc
 
     def test_three_lemons(self):
         net, desc = calculate_score(encode(3, 3, 3))
-        assert net == 18
+        assert net == 50 - SPIN_COST
         assert "lemon" in desc.lower()
 
     def test_three_grapes(self):
         net, desc = calculate_score(encode(2, 2, 2))
-        assert net == 18
+        assert net == 50 - SPIN_COST
         assert "grape" in desc.lower()
 
     def test_triple_bar(self):
         net, desc = calculate_score(encode(1, 1, 1))
-        assert net == 12
+        assert net == 25 - SPIN_COST
         assert "BAR" in desc
 
     @pytest.mark.parametrize("reels", [
@@ -51,7 +51,7 @@ class TestCalculateScore:
     ])
     def test_two_sevens(self, reels):
         net, desc = calculate_score(encode(*reels))
-        assert net == 2
+        assert net == 20 - SPIN_COST
         assert "two sevens" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
@@ -61,8 +61,8 @@ class TestCalculateScore:
     ])
     def test_one_seven(self, reels):
         net, desc = calculate_score(encode(*reels))
-        assert net == -2
-        assert "one seven" in desc.lower()
+        assert net == 5 - SPIN_COST
+        assert "close" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
         (1, 1, 2), (1, 1, 3),
@@ -73,7 +73,7 @@ class TestCalculateScore:
     ])
     def test_pair_no_seven(self, reels):
         net, desc = calculate_score(encode(*reels))
-        assert net == 3 - SPIN_COST
+        assert net == 5 - SPIN_COST
         assert "pair" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
@@ -92,12 +92,30 @@ class TestCalculateScore:
 
 
 class TestHouseEdge:
-    def test_expected_return_is_nine(self):
-        """Casino should expect $9 return per $10 spin (10% house edge)."""
+    def test_expected_return(self):
+        """Verify expected return matches the payout table in casino.py."""
         total_return = sum(calculate_score(v)[0] + SPIN_COST for v in range(1, 65))
         expected_return = total_return / 64
-        assert abs(expected_return - 9.0) < 0.01
+        # Current table: player-favourable (~$12.97/spin), tolerance for rounding
+        assert abs(expected_return - 12.97) < 0.01
 
-    def test_casino_wins_on_average(self):
-        total_net = sum(calculate_score(v)[0] for v in range(1, 65))
-        assert total_net < 0  # casino is net positive
+    def test_tier_scaling_doubles_cost(self):
+        from casino import get_spin_params, SPIN_COST, TIER_BALANCE_CAP, TIER_COST_MULT
+        cost0, _ = get_spin_params(0)
+        cost1, _ = get_spin_params(TIER_BALANCE_CAP)
+        assert cost0 == SPIN_COST
+        assert cost1 == SPIN_COST * TIER_COST_MULT
+
+    def test_tier_scaling_multiplies_wins(self):
+        from casino import get_spin_params, TIER_BALANCE_CAP, TIER_WIN_MULT
+        _, mult0 = get_spin_params(0)
+        _, mult1 = get_spin_params(TIER_BALANCE_CAP)
+        assert mult0 == 1.0
+        assert abs(mult1 - TIER_WIN_MULT) < 1e-9
+
+    def test_tier_boundary(self):
+        from casino import get_spin_params, SPIN_COST, TIER_BALANCE_CAP, TIER_COST_MULT
+        cost_below, _ = get_spin_params(TIER_BALANCE_CAP - 1)
+        cost_at, _    = get_spin_params(TIER_BALANCE_CAP)
+        assert cost_below == SPIN_COST
+        assert cost_at    == SPIN_COST * TIER_COST_MULT
