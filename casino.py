@@ -40,21 +40,21 @@ def calculate_score(value: int) -> tuple[int, str]:  # pylint: disable=too-many-
     reels_str = " ".join(SYMBOLS[r] for r in (r3, r2, r1))
 
     if r1 == r2 == r3 == 4:
-        return 300 - SPIN_COST, f"{reels_str} — JACKPOT! 🎉"
-    if r1 == r2 == r3 == 3:
-        return 40 - SPIN_COST, f"{reels_str} — Three lemons!"
+        return 400 - SPIN_COST, f"{reels_str} — JACKPOT! 🎉"
+    if r1 == r2 == r2 == 3:
+        return 100 - SPIN_COST, f"{reels_str} — Three lemons!"
     if r1 == r2 == r3 == 2:
-        return 40 - SPIN_COST, f"{reels_str} — Three grapes!"
+        return 100 - SPIN_COST, f"{reels_str} — Three grapes!"
     if r1 == r2 == r3 == 1:
-        return 30 - SPIN_COST, f"{reels_str} — Triple BAR!"
+        return 50 - SPIN_COST, f"{reels_str} — Triple BAR!"
 
     sevens = (r1, r2, r3).count(4)
     if sevens == 2:
         return 20 - SPIN_COST, f"{reels_str} — Two sevens!"
     if sevens == 1:
-        return -SPIN_COST, f"{reels_str} — So close! 😤"
+        return 10 - SPIN_COST, f"{reels_str} — So close! 😤"
 
     if r1 == r2 or r2 == r3 or r1 == r3:
-        return -SPIN_COST, f"{reels_str} — Pair, no luck."
+        return 10 - SPIN_COST, f"{reels_str} — Pair!"
 
     return -SPIN_COST, f"{reels_str} — No luck this time."
