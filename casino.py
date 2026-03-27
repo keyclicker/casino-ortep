@@ -31,8 +31,9 @@ SPIN_COST = 10
 HOURLY_DEPOSIT = 20 
 
 TIER_BALANCE_CAP = 500   # balance threshold per tier step
-TIER_COST_MULT = 2.0       # cost multiplier per tier (×1.5 per step)
-TIER_WIN_MULT = 1.8      # win multiplier per tier (×1.4 per step)
+TIER_COST_MULT = 2.0     # cost multiplier per tier
+TIER_WIN_MULT = 1.8      # win multiplier per tier
+TRIPLE_BAR_PENALTY = 3   # triple BAR costs this many times the spin cost
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
@@ -70,7 +71,7 @@ def calculate_score(value: int, cost: int = SPIN_COST, win_mult: float = 1.0) ->
     if r1 == r2 == r3 == 2:
         return pay(100), f"{reels_str} — Three grapes!"
     if r1 == r2 == r3 == 1:
-        return pay(50), f"{reels_str} — Triple BAR!"
+        return -round(cost * TRIPLE_BAR_PENALTY), f"{reels_str} — PENALTY! 💸"
 
     sevens = (r1, r2, r3).count(4)
     if sevens == 2:
