@@ -19,7 +19,7 @@
 #                                 ratio:    1.109  (casino collects 10.9% more than pays)
 
 SPIN_COST = 10
-HOURLY_DEPOSIT = 5
+HOURLY_DEPOSIT = 10
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
