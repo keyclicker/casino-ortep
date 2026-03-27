@@ -23,7 +23,7 @@ def test_get_or_create_new_player_gets_default_balance():
 
 def test_get_or_create_existing_player_returns_current_balance():
     db.get_or_create(1, "alice")
-    db.apply_spin(1, -5)
+    db.apply_spin(1, -5, COST)
     balance = db.get_or_create(1, "alice")
     assert balance == db.DEFAULT_BALANCE - 5
 
@@ -49,30 +49,46 @@ def test_get_balance_known_player():
 
 # --- apply_spin ---
 
+COST = 10  # SPIN_COST used in tests
+
+
 def test_apply_spin_adds_positive_net():
     db.get_or_create(1, "alice")
-    ok, new_bal = db.apply_spin(1, 50)
+    ok, new_bal = db.apply_spin(1, 50, COST)
     assert ok is True
     assert new_bal == db.DEFAULT_BALANCE + 50
 
 
 def test_apply_spin_subtracts_negative_net():
     db.get_or_create(1, "alice")
-    ok, new_bal = db.apply_spin(1, -10)
+    ok, new_bal = db.apply_spin(1, -COST, COST)
     assert ok is True
-    assert new_bal == db.DEFAULT_BALANCE - 10
+    assert new_bal == db.DEFAULT_BALANCE - COST
 
 
-def test_apply_spin_rejects_insufficient_funds():
+def test_apply_spin_rejects_when_balance_below_cost():
     db.get_or_create(1, "alice")
-    ok, bal = db.apply_spin(1, -(db.DEFAULT_BALANCE + 1))
+    # Give alice only $5 (below spin cost of $10)
+    db.apply_spin(1, -(db.DEFAULT_BALANCE - 5), COST)
+    ok, bal = db.apply_spin(1, -COST, COST)
     assert ok is False
-    assert bal == db.DEFAULT_BALANCE  # unchanged
+    assert bal == 5  # unchanged
 
 
-def test_apply_spin_allows_exact_drain_to_zero():
+def test_apply_spin_rejects_partial_win_when_balance_below_cost():
+    # Bug regression: balance=$5, net=-2 (partial win) must still be rejected
     db.get_or_create(1, "alice")
-    ok, bal = db.apply_spin(1, -db.DEFAULT_BALANCE)
+    db.apply_spin(1, -(db.DEFAULT_BALANCE - 5), COST)
+    ok, bal = db.apply_spin(1, -2, COST)  # two sevens: net=-2
+    assert ok is False
+    assert bal == 5  # unchanged
+
+
+def test_apply_spin_allows_exact_cost():
+    db.get_or_create(1, "alice")
+    # Set balance to exactly COST
+    db.apply_spin(1, -(db.DEFAULT_BALANCE - COST), COST)
+    ok, bal = db.apply_spin(1, -COST, COST)
     assert ok is True
     assert bal == 0
 

@@ -79,7 +79,7 @@ async def handle_slot(  # pylint: disable=unused-argument
     _ensure_player(user)
 
     net, description = calculate_score(msg.dice.value)
-    ok, new_balance = db.apply_spin(user.id, net)
+    ok, new_balance = db.apply_spin(user.id, net, SPIN_COST)
     if not ok:
         logger.warning("uid=%d %s tried to spin with insufficient funds ($%d)",
                        user.id, name, new_balance)
@@ -90,13 +90,15 @@ async def handle_slot(  # pylint: disable=unused-argument
         )
         return
 
-    sign = "+" if net >= 0 else "−"
+    payout = net + SPIN_COST
+    win_part = f" + *${payout}*" if payout > 0 else ""
     await msg.reply_text(
         f"{description}\n"
-        f"*{sign}${abs(net)}* · 💰 *${new_balance}*",
+        f"💰 *\\-${SPIN_COST}*{win_part} => *${new_balance}*",
         parse_mode="Markdown",
     )
-    logger.info("uid=%d %s rolled 🎰 → $%+d | balance $%d", user.id, name, net, new_balance)
+    logger.info("uid=%d %s rolled 🎰 payout=$%d net=$%+d | balance $%d",
+                user.id, name, payout, net, new_balance)
 
 
 # --- Player commands ---
@@ -204,10 +206,12 @@ async def cmd_stats(  # pylint: disable=unused-argument
     won, lost = db.get_player_stats(user.id)
     net = won - lost
     sign = "+" if net >= 0 else "−"
+    total = won + lost
+    ratio = f"{won / total * 100:.1f}%" if total else "N/A"
     await update.effective_message.reply_text(
         f"📊 {_md_name(user)}\n"
         f"Won: *${won}* · Lost: *${lost}*\n"
-        f"Net: *{sign}${abs(net)}*",
+        f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*",
         parse_mode="Markdown",
     )
 
@@ -302,10 +306,12 @@ async def cmd_casinostats(  # pylint: disable=unused-argument
     paid_out, collected = db.get_casino_stats()
     net = collected - paid_out
     sign = "+" if net >= 0 else "−"
+    total = paid_out + collected
+    ratio = f"{collected / total * 100:.1f}%" if total else "N/A"
     await update.effective_message.reply_text(
         f"🏦 Casino stats\n"
         f"Paid out: *${paid_out}* · Collected: *${collected}*\n"
-        f"Net: *{sign}${abs(net)}*",
+        f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*",
         parse_mode="Markdown",
     )
 
@@ -384,6 +390,27 @@ async def cmd_dodep(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Hidden admin command: list all players sorted by balance descending."""
+    user = update.effective_user
+    if (user.username or "").lower() != BOT_ADMIN.lower():
+        return
+
+    players = db.get_all_players_by_balance()
+    if not players:
+        await update.effective_message.reply_text("No players yet.")
+        return
+
+    lines = [
+        f"{i}\\. {escape_markdown('@' + p.username) if p.username else str(p.user_id)} — *${p.balance}*"
+        for i, p in enumerate(players, 1)
+    ]
+    await update.effective_message.reply_text(
+        f"👥 *Players ({len(players)})*\n" + "\n".join(lines),
+        parse_mode="Markdown",
+    )
+
+
 # --- App setup ---
 
 async def _job_hourly_deposit(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -434,6 +461,7 @@ def main() -> None:
     app.add_handler(CommandHandler("unsettopic", cmd_unsettopic))
     app.add_handler(CommandHandler("casino", cmd_casino))
     app.add_handler(CommandHandler("dodep", cmd_dodep))
+    app.add_handler(CommandHandler("balances", cmd_balances))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

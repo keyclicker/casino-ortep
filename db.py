@@ -62,14 +62,14 @@ def get_balance(user_id: int) -> int | None:
         return player.balance if player else None
 
 
-def apply_spin(user_id: int, net: int) -> tuple[bool, int]:
+def apply_spin(user_id: int, net: int, cost: int) -> tuple[bool, int]:
     """Atomically check the player can afford the spin and apply it.
 
     Returns (ok, new_balance). ok=False means insufficient funds; balance unchanged.
     """
     with Session(engine) as s:
         player = s.get(Player, user_id)
-        if player is None or player.balance + net < 0:
+        if player is None or player.balance < cost:
             return False, (player.balance if player else 0)
         player.balance += net
         if net > 0:
@@ -130,6 +130,12 @@ def credit(user_id: int, amount: int) -> int:
         player.balance += amount
         s.commit()
         return player.balance
+
+
+def get_all_players_by_balance() -> list[Player]:
+    """Return all players sorted by balance descending."""
+    with Session(engine) as s:
+        return s.scalars(select(Player).order_by(Player.balance.desc())).all()
 
 
 def daily_deposit(amount: int) -> int:
