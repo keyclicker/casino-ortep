@@ -16,6 +16,7 @@ alembic = "^1.18.4"
 [tool.poetry.group.dev.dependencies]
 pytest = "8.3.4"
 pylint = "^4.0.5"
+pytest-cov = "^7.1.0"
 
 [build-system]
 requires = ["poetry-core"]

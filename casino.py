@@ -28,11 +28,11 @@
 #   ...
 
 SPIN_COST = 10
-HOURLY_DEPOSIT = 10
+HOURLY_DEPOSIT = 20 
 
 TIER_BALANCE_CAP = 500   # balance threshold per tier step
-TIER_COST_MULT = 1.5       # cost multiplier per tier (×1.5 per step)
-TIER_WIN_MULT = 1.4      # win multiplier per tier (×1.4 per step)
+TIER_COST_MULT = 2.0       # cost multiplier per tier (×1.5 per step)
+TIER_WIN_MULT = 1.8      # win multiplier per tier (×1.4 per step)
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
@@ -64,21 +64,21 @@ def calculate_score(value: int, cost: int = SPIN_COST, win_mult: float = 1.0) ->
         return round(gross * win_mult) - cost
 
     if r1 == r2 == r3 == 4:
-        return pay(300), f"{reels_str} — JACKPOT! 🎉"
+        return pay(400), f"{reels_str} — JACKPOT! 🎉"
     if r1 == r2 == r3 == 3:
-        return pay(50), f"{reels_str} — Three lemons!"
+        return pay(100), f"{reels_str} — Three lemons!"
     if r1 == r2 == r3 == 2:
-        return pay(50), f"{reels_str} — Three grapes!"
+        return pay(100), f"{reels_str} — Three grapes!"
     if r1 == r2 == r3 == 1:
-        return pay(25), f"{reels_str} — Triple BAR!"
+        return pay(50), f"{reels_str} — Triple BAR!"
 
     sevens = (r1, r2, r3).count(4)
     if sevens == 2:
-        return pay(20), f"{reels_str} — Two sevens!"
+        return pay(25), f"{reels_str} — Two sevens!"
     if sevens == 1:
-        return pay(5), f"{reels_str} — So close! 😤"
+        return pay(10), f"{reels_str} — So close! 😤"
 
     if r1 == r2 or r2 == r3 or r1 == r3:
-        return pay(5), f"{reels_str} — Pair!"
+        return pay(10), f"{reels_str} — Pair!"
 
     return pay(0), f"{reels_str} — No luck this time."
