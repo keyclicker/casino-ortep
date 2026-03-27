@@ -94,7 +94,7 @@ async def handle_slot(  # pylint: disable=unused-argument
     win_part = f" + *${payout}*" if payout > 0 else ""
     await msg.reply_text(
         f"{description}\n"
-        f"💰 *\\-${SPIN_COST}*{win_part} => *${new_balance}*",
+        f"💰 *-${SPIN_COST}*{win_part} => *${new_balance}*",
         parse_mode="Markdown",
     )
     logger.info("uid=%d %s rolled 🎰 payout=$%d net=$%+d | balance $%d",
