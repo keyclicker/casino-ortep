@@ -55,9 +55,7 @@ def decode_reels(value: int) -> tuple[int, int, int]:
     return r1, r2, r3
 
 
-def calculate_score(  # pylint: disable=too-many-return-statements
-    value: int, cost: int = SPIN_COST, win_mult: float = 1.0
-) -> tuple[int, str]:
+def calculate_score(value: int, cost: int = SPIN_COST, win_mult: float = 1.0) -> tuple[int, str]:  # pylint: disable=too-many-return-statements
     """Return (net_dollars, description). Net is negative when player loses."""
     r1, r2, r3 = decode_reels(value)
     reels_str = " ".join(SYMBOLS[r] for r in (r3, r2, r1))

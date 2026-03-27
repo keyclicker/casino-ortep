@@ -52,7 +52,7 @@ def _display_name(user) -> str:
 
 
 def _md_name(user) -> str:
-    """Display name safe for Markdown v1 (escapes _, *, `, [)."""
+    """Markdown-safe display name (escapes _, *, `, [)."""
     return escape_markdown(_display_name(user))
 
 
@@ -61,7 +61,11 @@ def _ensure_player(user) -> int:
     return db.get_or_create(user.id, user.username or "")
 
 
-async def _is_admin(update: Update, context) -> bool:
+def _is_bot_admin(user) -> bool:
+    return (user.username or "").lower() == BOT_ADMIN.lower()
+
+
+async def _is_chat_admin(update: Update, context) -> bool:
     member = await context.bot.get_chat_member(update.effective_chat.id, update.effective_user.id)
     return member.status in ("administrator", "creator")
 
@@ -91,8 +95,7 @@ async def handle_slot(  # pylint: disable=unused-argument
                        user.id, name, new_balance)
         await _reply(
             msg,
-            f"❌ Not enough coins to spin!\n"
-            f"💰 *${new_balance}* · need *${cost}*",
+            f"❌ Not enough coins to spin!\n💰 *${new_balance}* · need *${cost}*",
             parse_mode="Markdown",
         )
         return
@@ -101,8 +104,7 @@ async def handle_slot(  # pylint: disable=unused-argument
     win_part = f" + *${payout}*" if payout > 0 else ""
     await _reply(
         msg,
-        f"{description}\n"
-        f"💰 *-${cost}*{win_part} => *${new_balance}*",
+        f"{description}\n💰 *-${cost}*{win_part} => *${new_balance}*",
         parse_mode="Markdown",
     )
     logger.info("uid=%d %s rolled 🎰 tier=%d cost=$%d payout=$%d net=$%+d | balance $%d",
@@ -118,15 +120,12 @@ async def cmd_balance(  # pylint: disable=unused-argument
     user = update.effective_user
     balance = _ensure_player(user)
     logger.info("uid=%d %s checked balance: $%d", user.id, _display_name(user), balance)
-    await _reply(
-        update.effective_message,
-        f"💰 *${balance}*",
-        parse_mode="Markdown",
-    )
+    await _reply(update.effective_message, f"💰 *${balance}*", parse_mode="Markdown")
 
 
-async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statements
-    update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_give(  # pylint: disable=too-many-return-statements
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Transfer funds to another player: /give @username amount."""
     msg = update.effective_message
     user = update.effective_user
@@ -135,43 +134,34 @@ async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statement
     args = context.args
     reply = msg.reply_to_message
 
-    # Resolve target and amount
     if reply and len(args) == 1:
-        # /give amount  (reply to target)
-        amount_str = args[0]
         target_user = reply.from_user
         target_id = target_user.id
         safe_target = escape_markdown(_display_name(target_user))
         if db.get_balance(target_id) is None:
-            await _reply(
-                msg,
-                f"❌ {safe_target} not found — they need to spin at least once first.",
-                parse_mode="Markdown",
-            )
+            await _reply(msg,
+                         f"❌ {safe_target} not found — they need to spin at least once first.",
+                         parse_mode="Markdown")
             return
+        amount_str = args[0]
     elif len(args) == 2:
-        # /give @username amount
-        amount_str = args[1]
         target_username = args[0].lstrip("@")
         target = db.get_by_username(target_username)
         if target is None:
             logger.warning("uid=%d %s tried to give to unknown player @%s",
                            user.id, _display_name(user), target_username)
-            await _reply(
-                msg,
-                f"❌ {escape_markdown('@' + target_username)} not found"
-                " — they need to spin at least once first.",
-                parse_mode="Markdown",
-            )
+            await _reply(msg,
+                         f"❌ {escape_markdown('@' + target_username)} not found"
+                         " — they need to spin at least once first.",
+                         parse_mode="Markdown")
             return
         target_id = target.user_id
         safe_target = escape_markdown(f"@{target_username}")
+        amount_str = args[1]
     else:
-        await _reply(
-            msg,
-            "Usage: `/give @username amount` or reply to a user with `/give amount`",
-            parse_mode="Markdown",
-        )
+        await _reply(msg,
+                     "Usage: `/give @username amount` or reply to a user with `/give amount`",
+                     parse_mode="Markdown")
         return
 
     try:
@@ -179,11 +169,9 @@ async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statement
     except ValueError:
         await _reply(msg, "❌ Amount must be a whole number.")
         return
-
     if amount <= 0:
         await _reply(msg, "❌ Amount must be positive.")
         return
-
     if target_id == user.id:
         await _reply(msg, "❌ You can't give money to yourself.")
         return
@@ -194,11 +182,7 @@ async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statement
         balance = db.get_balance(user.id)
         logger.warning("uid=%d %s failed to give $%d (insufficient funds, balance $%d)",
                        user.id, _display_name(user), amount, balance)
-        await _reply(
-            msg,
-            f"❌ Not enough funds · 💰 *${balance}*",
-            parse_mode="Markdown",
-        )
+        await _reply(msg, f"❌ Not enough funds · 💰 *${balance}*", parse_mode="Markdown")
         return
 
     logger.info("uid=%d %s gave $%d to uid=%d | balances $%d → $%d",
@@ -241,22 +225,19 @@ async def cmd_settopic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if chat.type not in ("group", "supergroup"):
         await _reply(msg, "❌ Run this command inside a group topic.")
         return
-
-    if not await _is_admin(update, context):
+    if not await _is_chat_admin(update, context):
         logger.warning("uid=%d %s tried /settopic without admin rights in chat %d",
                        user.id, _display_name(user), chat.id)
         await _reply(msg, "❌ Only group admins can set the casino topic.")
         return
-
-    topic_id = msg.message_thread_id
-    if topic_id is None:
+    if msg.message_thread_id is None:
         await _reply(msg, "❌ Run this command inside a topic thread, not the main chat.")
         return
 
-    db.set_casino_location(chat.id, topic_id)
+    db.set_casino_location(chat.id, msg.message_thread_id)
     await _reply(msg, "✅ Casino topic set for this group!")
     logger.info("uid=%d %s set casino location to group=%d topic=%d",
-                user.id, _display_name(user), chat.id, topic_id)
+                user.id, _display_name(user), chat.id, msg.message_thread_id)
 
 
 async def cmd_unsettopic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -267,8 +248,7 @@ async def cmd_unsettopic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if update.effective_chat.type not in ("group", "supergroup"):
         await _reply(msg, "❌ Run this command inside a group.")
         return
-
-    if not await _is_admin(update, context):
+    if not await _is_chat_admin(update, context):
         logger.warning("uid=%d %s tried /unsettopic without admin rights in chat %d",
                        user.id, _display_name(user), update.effective_chat.id)
         await _reply(msg, "❌ Only group admins can do this.")
@@ -290,32 +270,19 @@ async def cmd_casino(  # pylint: disable=unused-argument
     if chat.type in ("group", "supergroup"):
         topic_id = db.get_casino_location(chat.id)
         if topic_id is None:
-            await _reply(
-                msg,
-                "🎰 No casino topic set for this group.\n"
-                "An admin can run /settopic inside a topic to set it up.",
-            )
+            await _reply(msg, "🎰 No casino topic set for this group.\n"
+                             "An admin can run /settopic inside a topic to set it up.")
         else:
-            await _reply(
-                msg,
-                f"🎰 Casino is active in topic `{topic_id}`",
-                parse_mode="Markdown",
-            )
+            await _reply(msg, f"🎰 Casino is active in topic `{topic_id}`",
+                         parse_mode="Markdown")
     else:
         locations = db.get_all_casino_locations()
         if not locations:
-            await _reply(
-                msg,
-                "🎰 No groups configured yet.\n"
-                "An admin can run /settopic inside a group topic to set it up.",
-            )
+            await _reply(msg, "🎰 No groups configured yet.\n"
+                             "An admin can run /settopic inside a group topic to set it up.")
         else:
             lines = "\n".join(f"• Group `{g}` — Topic `{t}`" for g, t in locations.items())
-            await _reply(
-                msg,
-                f"🎰 Active casino locations:\n{lines}",
-                parse_mode="Markdown",
-            )
+            await _reply(msg, f"🎰 Active casino locations:\n{lines}", parse_mode="Markdown")
 
 
 async def cmd_casinostats(  # pylint: disable=unused-argument
@@ -341,82 +308,64 @@ async def cmd_dodep(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Hidden admin command: /dodep @username amount  or  /dodep * amount."""
     user = update.effective_user
     msg = update.effective_message
-
-    if (user.username or "").lower() != BOT_ADMIN.lower():
+    if not _is_bot_admin(user):
         return
 
     args = context.args
     reply = msg.reply_to_message
+    broadcast = False
 
-    # Resolve mode: reply, *, or @username
+    # Resolve target
     if reply and len(args) == 1:
-        # /dodep amount  (reply to target)
-        amount_str = args[0]
         target_user = reply.from_user
-        target_id = target_user.id
-        safe_target = escape_markdown(_display_name(target_user))
-        if db.get_balance(target_id) is None:
-            await _reply(msg, f"❌ {safe_target} not found.", parse_mode="Markdown")
-            return
-        try:
-            amount = int(amount_str)
-        except ValueError:
-            await _reply(msg, "❌ Amount must be a whole number.")
-            return
-        new_balance = db.credit(target_id, amount)
-        logger.info("Admin dodep: +$%d to uid=%d, new balance $%d", amount, target_id, new_balance)
-        await _reply(
-            msg,
-            f"✅ Dodep *+${amount}* → {safe_target} · 💰 *${new_balance}*",
-            parse_mode="Markdown",
-        )
-    elif len(args) == 2 and args[0] == "*":
-        try:
-            amount = int(args[1])
-        except ValueError:
-            await _reply(msg, "❌ Amount must be a whole number.")
-            return
-        count = db.daily_deposit(amount)
-        logger.info("Admin dodep: +$%d to all %d players", amount, count)
-        await _reply(
-            msg,
-            f"✅ Dodep *+${amount}* given to {count} players.",
-            parse_mode="Markdown",
-        )
-    elif len(args) == 2:
-        username = args[0].lstrip("@")
-        try:
-            amount = int(args[1])
-        except ValueError:
-            await _reply(msg, "❌ Amount must be a whole number.")
-            return
-        player = db.get_by_username(username)
-        if player is None:
-            await _reply(msg, f"❌ Player {escape_markdown('@' + username)} not found.",
+        if db.get_balance(target_user.id) is None:
+            await _reply(msg, f"❌ {escape_markdown(_display_name(target_user))} not found.",
                          parse_mode="Markdown")
             return
-        new_balance = db.credit(player.user_id, amount)
-        safe_target = escape_markdown(f"@{username}")
-        logger.info("Admin dodep: +$%d to @%s (uid=%d), new balance $%d",
-                    amount, username, player.user_id, new_balance)
-        await _reply(
-            msg,
-            f"✅ Dodep *+${amount}* → {safe_target} · 💰 *${new_balance}*",
-            parse_mode="Markdown",
-        )
+        target_id = target_user.id
+        safe_target = escape_markdown(_display_name(target_user))
+        amount_str = args[0]
+    elif len(args) == 2 and args[0] == "*":
+        broadcast = True
+        amount_str = args[1]
+    elif len(args) == 2:
+        target_username = args[0].lstrip("@")
+        player = db.get_by_username(target_username)
+        if player is None:
+            await _reply(msg, f"❌ Player {escape_markdown('@' + target_username)} not found.",
+                         parse_mode="Markdown")
+            return
+        target_id = player.user_id
+        safe_target = escape_markdown(f"@{target_username}")
+        amount_str = args[1]
     else:
-        await _reply(
-            msg,
-            "Usage: `/dodep @username amount`, `/dodep * amount`,"
-            " or reply to a user with `/dodep amount`",
-            parse_mode="Markdown",
-        )
+        await _reply(msg,
+                     "Usage: `/dodep @username amount`, `/dodep * amount`,"
+                     " or reply to a user with `/dodep amount`",
+                     parse_mode="Markdown")
+        return
+
+    try:
+        amount = int(amount_str)
+    except ValueError:
+        await _reply(msg, "❌ Amount must be a whole number.")
+        return
+
+    if broadcast:
+        count = db.daily_deposit(amount)
+        logger.info("Admin dodep: +$%d to all %d players", amount, count)
+        await _reply(msg, f"✅ Dodep *+${amount}* given to {count} players.",
+                     parse_mode="Markdown")
+    else:
+        new_balance = db.credit(target_id, amount)
+        logger.info("Admin dodep: +$%d to uid=%d, new balance $%d", amount, target_id, new_balance)
+        await _reply(msg, f"✅ Dodep *+${amount}* → {safe_target} · 💰 *${new_balance}*",
+                     parse_mode="Markdown")
 
 
 async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Hidden admin command: list all players sorted by balance descending."""
-    user = update.effective_user
-    if (user.username or "").lower() != BOT_ADMIN.lower():
+    if not _is_bot_admin(update.effective_user):
         return
 
     players = db.get_all_players_by_balance()
@@ -454,13 +403,13 @@ async def _job_hourly_deposit(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _post_init(app) -> None:
     await app.bot.set_my_commands([
-        ("balance",    "Check your current balance"),
-        ("give",       "Send coins to another player"),
-        ("stats",      "Show your win/loss statistics"),
+        ("balance",     "Check your current balance"),
+        ("give",        "Send coins to another player"),
+        ("stats",       "Show your win/loss statistics"),
         ("casinostats", "Show casino win/loss totals"),
         ("casino",      "Show where the casino is active"),
-        ("settopic",   "Set this topic as the casino (admins only)"),
-        ("unsettopic", "Remove the casino topic (admins only)"),
+        ("settopic",    "Set this topic as the casino (admins only)"),
+        ("unsettopic",  "Remove the casino topic (admins only)"),
     ])
     now = datetime.now(timezone.utc)
     next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
@@ -478,15 +427,15 @@ def main() -> None:
     app.add_handler(MessageHandler(
         CasinoFilter() & filters.Dice.SLOT_MACHINE & ~filters.FORWARDED, handle_slot
     ))
-    app.add_handler(CommandHandler("balance", cmd_balance))
-    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("balance",     cmd_balance))
+    app.add_handler(CommandHandler("stats",       cmd_stats))
     app.add_handler(CommandHandler("casinostats", cmd_casinostats))
-    app.add_handler(CommandHandler("give", cmd_give))
-    app.add_handler(CommandHandler("settopic", cmd_settopic))
-    app.add_handler(CommandHandler("unsettopic", cmd_unsettopic))
-    app.add_handler(CommandHandler("casino", cmd_casino))
-    app.add_handler(CommandHandler("dodep", cmd_dodep))
-    app.add_handler(CommandHandler("balances", cmd_balances))
+    app.add_handler(CommandHandler("give",        cmd_give))
+    app.add_handler(CommandHandler("settopic",    cmd_settopic))
+    app.add_handler(CommandHandler("unsettopic",  cmd_unsettopic))
+    app.add_handler(CommandHandler("casino",      cmd_casino))
+    app.add_handler(CommandHandler("dodep",       cmd_dodep))
+    app.add_handler(CommandHandler("balances",    cmd_balances))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
