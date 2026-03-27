@@ -9,7 +9,7 @@ from telegram.helpers import escape_markdown
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 import db
-from casino import HOURLY_DEPOSIT, SPIN_COST, calculate_score
+from casino import HOURLY_DEPOSIT, TIER_BALANCE_CAP, calculate_score, get_spin_params
 
 load_dotenv()
 
@@ -81,31 +81,32 @@ async def handle_slot(  # pylint: disable=unused-argument
     user = update.effective_user
     name = _display_name(user)
 
-    _ensure_player(user)
+    balance = _ensure_player(user)
+    cost, win_mult = get_spin_params(balance)
 
-    net, description = calculate_score(msg.dice.value)
-    ok, new_balance = db.apply_spin(user.id, net, SPIN_COST)
+    net, description = calculate_score(msg.dice.value, cost, win_mult)
+    ok, new_balance = db.apply_spin(user.id, net, cost)
     if not ok:
         logger.warning("uid=%d %s tried to spin with insufficient funds ($%d)",
                        user.id, name, new_balance)
         await _reply(
             msg,
             f"❌ Not enough coins to spin!\n"
-            f"💰 *${new_balance}* · need *${SPIN_COST}*",
+            f"💰 *${new_balance}* · need *${cost}*",
             parse_mode="Markdown",
         )
         return
 
-    payout = net + SPIN_COST
+    payout = net + cost
     win_part = f" + *${payout}*" if payout > 0 else ""
     await _reply(
         msg,
         f"{description}\n"
-        f"💰 *-${SPIN_COST}*{win_part} => *${new_balance}*",
+        f"💰 *-${cost}*{win_part} => *${new_balance}*",
         parse_mode="Markdown",
     )
-    logger.info("uid=%d %s rolled 🎰 payout=$%d net=$%+d | balance $%d",
-                user.id, name, payout, net, new_balance)
+    logger.info("uid=%d %s rolled 🎰 tier=%d cost=$%d payout=$%d net=$%+d | balance $%d",
+                user.id, name, balance // TIER_BALANCE_CAP, cost, payout, net, new_balance)
 
 
 # --- Player commands ---
