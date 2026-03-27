@@ -424,7 +424,7 @@ async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     lines = [
-        f"{i}. {escape_markdown('@' + p.username) if p.username else str(p.user_id)} — *${p.balance}*"
+        f"{i}. {escape_markdown(p.username) if p.username else str(p.user_id)} — *${p.balance}*"
         for i, p in enumerate(players, 1)
     ]
     await _reply(
