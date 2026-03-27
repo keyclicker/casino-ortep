@@ -20,7 +20,7 @@
 SPIN_COST = 10
 HOURLY_DEPOSIT = 5
 
-SYMBOLS = {1: "BAR", 2: "🍇", 3: "🍋", 4: "7️⃣"}
+SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
 
 def decode_reels(value: int) -> tuple[int, int, int]:
