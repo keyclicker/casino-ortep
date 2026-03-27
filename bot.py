@@ -87,6 +87,7 @@ async def handle_slot(  # pylint: disable=unused-argument
             f"❌ Not enough coins to spin!\n"
             f"💰 *${new_balance}* · need *${SPIN_COST}*",
             parse_mode="Markdown",
+            disable_notification=True,
         )
         return
 
@@ -96,6 +97,7 @@ async def handle_slot(  # pylint: disable=unused-argument
         f"{description}\n"
         f"💰 *-${SPIN_COST}*{win_part} => *${new_balance}*",
         parse_mode="Markdown",
+        disable_notification=True,
     )
     logger.info("uid=%d %s rolled 🎰 payout=$%d net=$%+d | balance $%d",
                 user.id, name, payout, net, new_balance)
