@@ -208,8 +208,7 @@ async def cmd_stats(  # pylint: disable=unused-argument
     won, lost = db.get_player_stats(user.id)
     net = won - lost
     sign = "+" if net >= 0 else "−"
-    total = won + lost
-    ratio = f"{won / total * 100:.1f}%" if total else "N/A"
+    ratio = f"{won / lost:.2f}x" if lost else "N/A"
     await update.effective_message.reply_text(
         f"📊 {_md_name(user)}\n"
         f"Won: *${won}* · Lost: *${lost}*\n"
@@ -308,8 +307,7 @@ async def cmd_casinostats(  # pylint: disable=unused-argument
     paid_out, collected = db.get_casino_stats()
     net = collected - paid_out
     sign = "+" if net >= 0 else "−"
-    total = paid_out + collected
-    ratio = f"{collected / total * 100:.1f}%" if total else "N/A"
+    ratio = f"{collected / paid_out:.2f}x" if paid_out else "N/A"
     await update.effective_message.reply_text(
         f"🏦 Casino stats\n"
         f"Paid out: *${paid_out}* · Collected: *${collected}*\n"
@@ -404,7 +402,7 @@ async def cmd_balances(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     lines = [
-        f"{i}\\. {escape_markdown('@' + p.username) if p.username else str(p.user_id)} — *${p.balance}*"
+        f"{i}. {escape_markdown('@' + p.username) if p.username else str(p.user_id)} — *${p.balance}*"
         for i, p in enumerate(players, 1)
     ]
     await update.effective_message.reply_text(
