@@ -79,6 +79,6 @@ def calculate_score(value: int, cost: int = SPIN_COST, win_mult: float = 1.0) ->
         return pay(10), f"{reels_str} — So close! 😤"
 
     if r1 == r2 or r2 == r3 or r1 == r3:
-        return pay(10), f"{reels_str} — Pair!"
+        return pay(5), f"{reels_str} — Pair!"
 
     return pay(0), f"{reels_str} — No luck this time."
