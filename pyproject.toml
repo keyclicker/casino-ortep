@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "casino-ortep"
+version = "0.1.0"
+description = "Telegram casino bot for group topics"
+authors = []
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+python-telegram-bot = {version = "21.6", extras = ["job-queue"]}
+python-dotenv = "1.0.1"
+sqlalchemy = "2.0.36"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "8.3.4"
+pylint = "^4.0.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
