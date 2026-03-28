@@ -39,7 +39,7 @@ TRIPLE_BAR_PENALTY = 50   # triple BAR base penalty (net = -(base * penalty_mult
 DOUBLE_BAR_PENALTY = 15   # double BAR base penalty (net = -(base * penalty_mult + cost))
 
 PAYOUT_JACKPOT     = 500  # 7️⃣7️⃣7️⃣
-PAYOUT_THREE_LEMON = 100  # 🍋🍋🍋
+PAYOUT_THREE_LEMON = 250  # 🍋🍋🍋
 PAYOUT_THREE_GRAPE = 100  # 🍇🍇🍇
 PAYOUT_TWO_SEVENS  = 25   # two 7️⃣
 PAYOUT_ONE_SEVEN   = 10   # one 7️⃣
