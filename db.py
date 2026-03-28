@@ -34,6 +34,17 @@ class CasinoLocation(Base):  # pylint: disable=too-few-public-methods
     topic_id: Mapped[int]
 
 
+class PendingReveal(Base):  # pylint: disable=too-few-public-methods
+    """A slot result message waiting to have its spoiler lifted."""
+    __tablename__ = "pending_reveals"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    chat_id: Mapped[int]
+    message_id: Mapped[int]
+    reveal_text: Mapped[str]
+    reveal_at: Mapped[float]  # Unix timestamp (UTC)
+
+
 def init_db() -> None:
     """Run all pending Alembic migrations."""
     cfg = Config(Path(__file__).parent / "alembic.ini")
@@ -180,3 +191,28 @@ def get_all_casino_locations() -> dict[int, int]:
     with Session(engine) as s:
         rows = s.scalars(select(CasinoLocation)).all()
         return {row.group_id: row.topic_id for row in rows}
+
+
+# --- Pending reveals ---
+
+def add_pending_reveal(chat_id: int, message_id: int, reveal_text: str, reveal_at: float) -> int:
+    """Store a pending spoiler reveal. Returns the row id."""
+    with Session(engine) as s:
+        row = PendingReveal(chat_id=chat_id, message_id=message_id,
+                            reveal_text=reveal_text, reveal_at=reveal_at)
+        s.add(row)
+        s.commit()
+        return row.id
+
+
+def get_pending_reveals() -> list[PendingReveal]:
+    """Return all pending reveals (for re-scheduling after restart)."""
+    with Session(engine) as s:
+        return list(s.scalars(select(PendingReveal)).all())
+
+
+def delete_pending_reveal(reveal_id: int) -> None:
+    """Remove a pending reveal by id."""
+    with Session(engine) as s:
+        s.execute(delete(PendingReveal).where(PendingReveal.id == reveal_id))
+        s.commit()

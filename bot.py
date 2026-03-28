@@ -4,7 +4,8 @@ import os
 from datetime import datetime, timezone, timedelta
 
 from dotenv import load_dotenv
-from telegram import Update, Message
+import time
+from telegram import Update, Message, MessageEntity
 from telegram.helpers import escape_markdown
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -14,6 +15,7 @@ from casino import HOURLY_DEPOSIT, TIER_BALANCE_CAP, calculate_score, get_spin_p
 load_dotenv()
 
 BOT_ADMIN = "nick_keyclicker"
+SPOILER_DELAY = 4  # seconds before the slot result spoiler is lifted
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise SystemExit(
@@ -75,6 +77,23 @@ async def _reply(msg: Message, text: str, **kwargs) -> None:
     await msg.reply_text(text, disable_notification=True, **kwargs)
 
 
+# --- Spoiler reveal ---
+
+async def _reveal_message(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Edit a slot result message to remove its spoiler."""
+    chat_id, message_id, reveal_text, reveal_id = context.job.data
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=reveal_text,
+            parse_mode="Markdown",
+        )
+    except Exception as e:  # pylint: disable=broad-except
+        logger.warning("Failed to reveal msg %d in chat %d: %s", message_id, chat_id, e)
+    db.delete_pending_reveal(reveal_id)
+
+
 # --- Slot handler ---
 
 async def handle_slot(  # pylint: disable=unused-argument
@@ -103,10 +122,28 @@ async def handle_slot(  # pylint: disable=unused-argument
 
     payout = net + cost
     if payout > 0:
-        balance_line = f"💰 *-${cost}* + *${payout}* => *${new_balance}*"
+        balance_line       = f"💰 *-${cost}* + *${payout}* => *${new_balance}*"
+        balance_line_plain = f"💰 -${cost} + ${payout} => ${new_balance}"
     else:
-        balance_line = f"💰 *-${-net}* => *${new_balance}*"
-    await _reply(msg, f"{description}\n{balance_line}", parse_mode="Markdown")
+        balance_line       = f"💰 *-${-net}* => *${new_balance}*"
+        balance_line_plain = f"💰 -${-net} => ${new_balance}"
+
+    reveal_text  = f"{description}\n{balance_line}"
+    spoiler_text = f"{description}\n{balance_line_plain}"
+    utf16_len = len(spoiler_text.encode("utf-16-le")) // 2
+    sent = await msg.reply_text(
+        spoiler_text,
+        entities=[MessageEntity(type=MessageEntity.SPOILER, offset=0, length=utf16_len)],
+        disable_notification=True,
+    )
+
+    reveal_at = time.time() + SPOILER_DELAY
+    reveal_id = db.add_pending_reveal(sent.chat_id, sent.message_id, reveal_text, reveal_at)
+    context.application.job_queue.run_once(
+        _reveal_message,
+        when=SPOILER_DELAY,
+        data=(sent.chat_id, sent.message_id, reveal_text, reveal_id),
+    )
     logger.info("uid=%d %s rolled 🎰 tier=%d cost=$%d payout=$%d net=$%+d | balance $%d",
                 user.id, name, balance // TIER_BALANCE_CAP, cost, payout, net, new_balance)
 
@@ -414,6 +451,19 @@ async def _post_init(app) -> None:
     now = datetime.now(timezone.utc)
     next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
     app.job_queue.run_repeating(_job_hourly_deposit, interval=3600, first=next_hour)
+
+    pending = db.get_pending_reveals()
+    if pending:
+        now_ts = time.time()
+        for r in pending:
+            delay = max(0.0, r.reveal_at - now_ts)
+            app.job_queue.run_once(
+                _reveal_message,
+                when=delay,
+                data=(r.chat_id, r.message_id, r.reveal_text, r.id),
+            )
+        logger.info("Scheduled %d pending reveal(s) from previous run", len(pending))
+
     bot_info = await app.bot.get_me()
     logger.info("Bot ready: @%s (id=%d)", bot_info.username, bot_info.id)
 
