@@ -292,7 +292,7 @@ async def cmd_casinostats(  # pylint: disable=unused-argument
         f"🏦 Casino stats\n"
         f"Paid out: *${paid_out}* · Collected: *${collected}*\n"
         f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*\n"
-        f"Players cap: *${total_balance:,.2f}*",
+        f"Players cap: *${total_balance}*",
         parse_mode="Markdown",
     )
 
@@ -396,7 +396,7 @@ async def cmd_balances(  # pylint: disable=unused-argument
         return
 
     def _ratio(p) -> str:
-        return f"{p.total_won / p.total_lost:.1f}x" if p.total_lost else "N/A"
+        return f"{p.total_won / p.total_lost:.2f}x" if p.total_lost else "N/A"
 
     lines = [
         f"{i}. {escape_markdown(p.username) if p.username else str(p.user_id)}"
