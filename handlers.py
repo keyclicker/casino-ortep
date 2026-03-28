@@ -184,7 +184,7 @@ async def cmd_stats(  # pylint: disable=unused-argument
     await reply(
         update.effective_message,
         f"📊 {md_name(user)}\n"
-        f"💰 Balance: *${balance}*\n"
+        f"Balance: *${balance}*\n"
         f"Won: *${won}* · Lost: *${lost}*\n"
         f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*",
         parse_mode="Markdown",
@@ -292,7 +292,7 @@ async def cmd_casinostats(  # pylint: disable=unused-argument
         f"🏦 Casino stats\n"
         f"Paid out: *${paid_out}* · Collected: *${collected}*\n"
         f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*\n"
-        f"Players cap: *${total_balance}*",
+        f"Players cap: *${total_balance:,.2f}*",
         parse_mode="Markdown",
     )
 
