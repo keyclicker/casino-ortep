@@ -101,12 +101,11 @@ async def handle_slot(  # pylint: disable=unused-argument
         return
 
     payout = net + cost
-    win_part = f" + *${payout}*" if payout > 0 else ""
-    await _reply(
-        msg,
-        f"{description}\n💰 *-${cost}*{win_part} => *${new_balance}*",
-        parse_mode="Markdown",
-    )
+    if payout > 0:
+        balance_line = f"💰 *-${cost}* + *${payout}* => *${new_balance}*"
+    else:
+        balance_line = f"💰 *-${-net}* => *${new_balance}*"
+    await _reply(msg, f"{description}\n{balance_line}", parse_mode="Markdown")
     logger.info("uid=%d %s rolled 🎰 tier=%d cost=$%d payout=$%d net=$%+d | balance $%d",
                 user.id, name, balance // TIER_BALANCE_CAP, cost, payout, net, new_balance)
 

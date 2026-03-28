@@ -35,8 +35,8 @@ TIER_COST_MULT = 2.0      # cost multiplier per tier
 TIER_WIN_MULT = 1.8       # win multiplier per tier
 TIER_PENALTY_MULT = 3.0   # penalty multiplier per tier
 
-TRIPLE_BAR_PENALTY = 20   # triple BAR base penalty (net = -(base * penalty_mult + cost))
-DOUBLE_BAR_PENALTY = 10   # double BAR base penalty (net = -(base * penalty_mult + cost))
+TRIPLE_BAR_PENALTY = 50   # triple BAR base penalty (net = -(base * penalty_mult + cost))
+DOUBLE_BAR_PENALTY = 15   # double BAR base penalty (net = -(base * penalty_mult + cost))
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
