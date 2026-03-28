@@ -30,20 +30,27 @@
 SPIN_COST = 10
 HOURLY_DEPOSIT = 20 
 
-TIER_BALANCE_CAP = 500   # balance threshold per tier step
-TIER_COST_MULT = 2.0     # cost multiplier per tier
-TIER_WIN_MULT = 1.8      # win multiplier per tier
-TRIPLE_BAR_PENALTY = 3   # triple BAR costs this many times the spin cost
+TIER_BALANCE_CAP = 500    # balance threshold per tier step
+TIER_COST_MULT = 2.0      # cost multiplier per tier
+TIER_WIN_MULT = 1.8       # win multiplier per tier
+TIER_PENALTY_MULT = 3.0   # penalty multiplier per tier
+
+TRIPLE_BAR_PENALTY = 20   # triple BAR base penalty (net = -(base * penalty_mult + cost))
+DOUBLE_BAR_PENALTY = 10   # double BAR base penalty (net = -(base * penalty_mult + cost))
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
 
-def get_spin_params(balance: int) -> tuple[int, float]:
-    """Return (spin_cost, win_multiplier) for the given balance tier."""
+def get_spin_params(balance: int) -> tuple[int, float, float]:
+    """Return (spin_cost, win_multiplier, penalty_multiplier) for the given balance tier."""
     tier = balance // TIER_BALANCE_CAP
     if tier == 0:
-        return SPIN_COST, 1.0
-    return SPIN_COST * (TIER_COST_MULT ** tier), TIER_WIN_MULT ** tier
+        return SPIN_COST, 1.0, 1.0
+    return (
+        round(SPIN_COST * (TIER_COST_MULT ** tier)),
+        TIER_WIN_MULT ** tier,
+        TIER_PENALTY_MULT ** tier,
+    )
 
 
 def decode_reels(value: int) -> tuple[int, int, int]:
@@ -56,13 +63,18 @@ def decode_reels(value: int) -> tuple[int, int, int]:
     return r1, r2, r3
 
 
-def calculate_score(value: int, cost: int = SPIN_COST, win_mult: float = 1.0) -> tuple[int, str]:  # pylint: disable=too-many-return-statements
+def calculate_score(  # pylint: disable=too-many-return-statements
+    value: int, cost: int = SPIN_COST, win_mult: float = 1.0, penalty_mult: float = 1.0
+) -> tuple[int, str]:
     """Return (net_dollars, description). Net is negative when player loses."""
     r1, r2, r3 = decode_reels(value)
     reels_str = " ".join(SYMBOLS[r] for r in (r3, r2, r1))
 
     def pay(gross: int) -> int:
         return round(gross * win_mult) - cost
+
+    def penalty(base: int) -> int:
+        return -(round(base * penalty_mult) + cost)
 
     if r1 == r2 == r3 == 4:
         return pay(400), f"{reels_str} — JACKPOT! 🎉"
@@ -71,13 +83,17 @@ def calculate_score(value: int, cost: int = SPIN_COST, win_mult: float = 1.0) ->
     if r1 == r2 == r3 == 2:
         return pay(100), f"{reels_str} — Three grapes!"
     if r1 == r2 == r3 == 1:
-        return -round(cost * TRIPLE_BAR_PENALTY), f"{reels_str} — PENALTY! 💸"
+        return penalty(TRIPLE_BAR_PENALTY), f"{reels_str} — PENALTY! 💸"
 
     sevens = (r1, r2, r3).count(4)
     if sevens == 2:
         return pay(25), f"{reels_str} — Two sevens!"
     if sevens == 1:
         return pay(10), f"{reels_str} — So close! 😤"
+
+    bars = (r1, r2, r3).count(1)
+    if bars == 2:
+        return penalty(DOUBLE_BAR_PENALTY), f"{reels_str} — Double BAR penalty! 💸"
 
     if r1 == r2 or r2 == r3 or r1 == r3:
         return pay(5), f"{reels_str} — Pair!"

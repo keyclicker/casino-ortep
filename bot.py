@@ -86,9 +86,9 @@ async def handle_slot(  # pylint: disable=unused-argument
     name = _display_name(user)
 
     balance = _ensure_player(user)
-    cost, win_mult = get_spin_params(balance)
+    cost, win_mult, penalty_mult = get_spin_params(balance)
 
-    net, description = calculate_score(msg.dice.value, cost, win_mult)
+    net, description = calculate_score(msg.dice.value, cost, win_mult, penalty_mult)
     ok, new_balance = db.apply_spin(user.id, net, cost)
     if not ok:
         logger.warning("uid=%d %s tried to spin with insufficient funds ($%d)",

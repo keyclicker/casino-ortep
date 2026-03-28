@@ -42,8 +42,17 @@ class TestCalculateScore:
     def test_triple_bar_penalty(self):
         from casino import TRIPLE_BAR_PENALTY
         net, desc = calculate_score(encode(1, 1, 1))
-        assert net == -(SPIN_COST * TRIPLE_BAR_PENALTY)
+        assert net == -(TRIPLE_BAR_PENALTY + SPIN_COST)
         assert "PENALTY" in desc
+
+    @pytest.mark.parametrize("reels", [
+        (1, 1, 2), (1, 1, 3), (1, 2, 1), (2, 1, 1),
+    ])
+    def test_double_bar_penalty(self, reels):
+        from casino import DOUBLE_BAR_PENALTY
+        net, desc = calculate_score(encode(*reels))
+        assert net == -(DOUBLE_BAR_PENALTY + SPIN_COST)
+        assert "penalty" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
         (4, 4, 1), (4, 4, 2), (4, 4, 3),
@@ -66,11 +75,9 @@ class TestCalculateScore:
         assert "close" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
-        (1, 1, 2), (1, 1, 3),
         (2, 2, 1), (2, 2, 3),
         (3, 3, 1), (3, 3, 2),
-        (1, 2, 1), (2, 1, 2),
-        (1, 2, 2), (3, 1, 1),
+        (2, 1, 2), (1, 2, 2),
     ])
     def test_pair_no_seven(self, reels):
         net, desc = calculate_score(encode(*reels))
@@ -101,21 +108,28 @@ class TestHouseEdge:
 
     def test_tier_scaling_doubles_cost(self):
         from casino import get_spin_params, SPIN_COST, TIER_BALANCE_CAP, TIER_COST_MULT
-        cost0, _ = get_spin_params(0)
-        cost1, _ = get_spin_params(TIER_BALANCE_CAP)
+        cost0, _, _ = get_spin_params(0)
+        cost1, _, _ = get_spin_params(TIER_BALANCE_CAP)
         assert cost0 == SPIN_COST
         assert cost1 == SPIN_COST * TIER_COST_MULT
 
     def test_tier_scaling_multiplies_wins(self):
         from casino import get_spin_params, TIER_BALANCE_CAP, TIER_WIN_MULT
-        _, mult0 = get_spin_params(0)
-        _, mult1 = get_spin_params(TIER_BALANCE_CAP)
+        _, mult0, _ = get_spin_params(0)
+        _, mult1, _ = get_spin_params(TIER_BALANCE_CAP)
         assert mult0 == 1.0
         assert abs(mult1 - TIER_WIN_MULT) < 1e-9
 
+    def test_tier_scaling_multiplies_penalties(self):
+        from casino import get_spin_params, TIER_BALANCE_CAP, TIER_PENALTY_MULT
+        _, _, pmult0 = get_spin_params(0)
+        _, _, pmult1 = get_spin_params(TIER_BALANCE_CAP)
+        assert pmult0 == 1.0
+        assert abs(pmult1 - TIER_PENALTY_MULT) < 1e-9
+
     def test_tier_boundary(self):
         from casino import get_spin_params, SPIN_COST, TIER_BALANCE_CAP, TIER_COST_MULT
-        cost_below, _ = get_spin_params(TIER_BALANCE_CAP - 1)
-        cost_at, _    = get_spin_params(TIER_BALANCE_CAP)
+        cost_below, _, _ = get_spin_params(TIER_BALANCE_CAP - 1)
+        cost_at, _, _    = get_spin_params(TIER_BALANCE_CAP)
         assert cost_below == SPIN_COST
         assert cost_at    == SPIN_COST * TIER_COST_MULT
