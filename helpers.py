@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ──────────────────────────────────────────────────────────────
 
 BOT_ADMIN = "nick_keyclicker"
-SPOILER_DELAY = 4  # seconds before a slot-result spoiler is lifted
+SPOILER_DELAY = 2  # seconds before a slot-result spoiler is lifted
 
 # ── Display ────────────────────────────────────────────────────────────────
 
