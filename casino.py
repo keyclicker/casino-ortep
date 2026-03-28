@@ -33,10 +33,10 @@
 SPIN_COST = 10
 HOURLY_DEPOSIT = 20
 
-TIER_BALANCE_CAP = 250    # balance threshold per tier step
-TIER_COST_MULT = 1.5      # cost multiplier per tier
-TIER_WIN_MULT = 1.4       # win multiplier per tier
-TIER_PENALTY_MULT = 2.5   # penalty multiplier per tier
+TIER_BALANCE_CAP = 100    # balance threshold per tier step
+TIER_COST_MULT = 1.1      # cost multiplier per tier
+TIER_WIN_MULT = 1.075       # win multiplier per tier
+TIER_PENALTY_MULT = 1.15   # penalty multiplier per tier
 
 TRIPLE_BAR_PENALTY = 50   # triple BAR base penalty (net = -(base * penalty_mult + cost))
 DOUBLE_BAR_PENALTY = 15   # double BAR base penalty (net = -(base * penalty_mult + cost))
