@@ -100,12 +100,13 @@ def get_player_stats(user_id: int) -> tuple[int, int] | None:
         return player.total_won, player.total_lost
 
 
-def get_casino_stats() -> tuple[int, int]:
-    """Return (total_paid_out, total_collected) across all players."""
+def get_casino_stats() -> tuple[int, int, int]:
+    """Return (total_paid_out, total_collected, total_balance) across all players."""
     with Session(engine) as s:
-        paid_out = s.scalar(select(func.sum(Player.total_won))) or 0
-        collected = s.scalar(select(func.sum(Player.total_lost))) or 0
-        return paid_out, collected
+        paid_out      = s.scalar(select(func.sum(Player.total_won)))   or 0
+        collected     = s.scalar(select(func.sum(Player.total_lost)))  or 0
+        total_balance = s.scalar(select(func.sum(Player.balance)))     or 0
+        return paid_out, collected, total_balance
 
 
 def transfer(from_id: int, to_id: int, amount: int) -> tuple[int, int]:

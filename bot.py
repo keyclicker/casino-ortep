@@ -17,7 +17,7 @@ import db
 from filters import CasinoFilter
 from handlers import (
     handle_slot,
-    cmd_balance, cmd_give, cmd_stats,
+    cmd_give, cmd_stats,
     cmd_settopic, cmd_unsettopic, cmd_casino, cmd_casinostats,
     cmd_dodep, cmd_balances,
 )
@@ -43,9 +43,8 @@ logger = logging.getLogger(__name__)
 async def _post_init(app) -> None:
     """Register bot commands, schedule jobs, and re-queue pending reveals."""
     await app.bot.set_my_commands([
-        ("balance",     "Check your current balance"),
+        ("stats",       "Show your balance and win/loss statistics"),
         ("give",        "Send coins to another player"),
-        ("stats",       "Show your win/loss statistics"),
         ("casinostats", "Show casino win/loss totals"),
         ("casino",      "Show where the casino is active"),
         ("settopic",    "Set this topic as the casino (admins only)"),
@@ -87,7 +86,6 @@ def main() -> None:
     ))
 
     # Player commands
-    app.add_handler(CommandHandler("balance",     cmd_balance))
     app.add_handler(CommandHandler("stats",       cmd_stats))
     app.add_handler(CommandHandler("casinostats", cmd_casinostats))
     app.add_handler(CommandHandler("give",        cmd_give))

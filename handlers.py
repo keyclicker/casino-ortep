@@ -84,16 +84,6 @@ async def handle_slot(  # pylint: disable=too-many-locals
 
 # ── Player commands ────────────────────────────────────────────────────────
 
-async def cmd_balance(  # pylint: disable=unused-argument
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Show the caller's current balance."""
-    user    = update.effective_user
-    balance = ensure_player(user)
-    logger.info("uid=%d %s checked balance: $%d", user.id, display_name(user), balance)
-    await reply(update.effective_message, f"💰 *${balance}*", parse_mode="Markdown")
-
-
 async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statements
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -182,16 +172,19 @@ async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statement
 async def cmd_stats(  # pylint: disable=unused-argument
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Show the caller's win/loss stats."""
-    user = update.effective_user
-    ensure_player(user)
+    """Show the caller's balance and win/loss stats."""
+    user    = update.effective_user
+    balance = ensure_player(user)
     won, lost = db.get_player_stats(user.id)
     net   = won - lost
     sign  = "+" if net >= 0 else "−"
     ratio = f"{won / lost:.2f}x" if lost else "N/A"
+    logger.info("uid=%d %s checked stats: balance=$%d won=$%d lost=$%d",
+                user.id, display_name(user), balance, won, lost)
     await reply(
         update.effective_message,
         f"📊 {md_name(user)}\n"
+        f"💰 Balance: *${balance}*\n"
         f"Won: *${won}* · Lost: *${lost}*\n"
         f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*",
         parse_mode="Markdown",
@@ -290,7 +283,7 @@ async def cmd_casinostats(  # pylint: disable=unused-argument
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Show casino-wide win/loss totals."""
-    paid_out, collected = db.get_casino_stats()
+    paid_out, collected, total_balance = db.get_casino_stats()
     net   = collected - paid_out
     sign  = "+" if net >= 0 else "−"
     ratio = f"{collected / paid_out:.2f}x" if paid_out else "N/A"
@@ -298,7 +291,8 @@ async def cmd_casinostats(  # pylint: disable=unused-argument
         update.effective_message,
         f"🏦 Casino stats\n"
         f"Paid out: *${paid_out}* · Collected: *${collected}*\n"
-        f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*",
+        f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*\n"
+        f"Players cap: *${total_balance}*",
         parse_mode="Markdown",
     )
 
@@ -401,9 +395,12 @@ async def cmd_balances(  # pylint: disable=unused-argument
         await reply(update.effective_message, "No players yet.")
         return
 
+    def _ratio(p) -> str:
+        return f"{p.total_won / p.total_lost:.1f}x" if p.total_lost else "N/A"
+
     lines = [
         f"{i}. {escape_markdown(p.username) if p.username else str(p.user_id)}"
-        f" — *${p.balance}*"
+        f" — *${p.balance}* _({_ratio(p)})_"
         for i, p in enumerate(players, 1)
     ]
     await reply(
