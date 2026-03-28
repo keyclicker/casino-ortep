@@ -28,15 +28,23 @@
 #   ...
 
 SPIN_COST = 10
-HOURLY_DEPOSIT = 20 
+HOURLY_DEPOSIT = 20
 
-TIER_BALANCE_CAP = 500    # balance threshold per tier step
-TIER_COST_MULT = 2.0      # cost multiplier per tier
-TIER_WIN_MULT = 1.8       # win multiplier per tier
-TIER_PENALTY_MULT = 3.0   # penalty multiplier per tier
+TIER_BALANCE_CAP = 250    # balance threshold per tier step
+TIER_COST_MULT = 1.5      # cost multiplier per tier
+TIER_WIN_MULT = 1.4       # win multiplier per tier
+TIER_PENALTY_MULT = 2.5   # penalty multiplier per tier
 
 TRIPLE_BAR_PENALTY = 50   # triple BAR base penalty (net = -(base * penalty_mult + cost))
 DOUBLE_BAR_PENALTY = 15   # double BAR base penalty (net = -(base * penalty_mult + cost))
+
+PAYOUT_JACKPOT     = 500  # 7️⃣7️⃣7️⃣
+PAYOUT_THREE_LEMON = 100  # 🍋🍋🍋
+PAYOUT_THREE_GRAPE = 100  # 🍇🍇🍇
+PAYOUT_TWO_SEVENS  = 25   # two 7️⃣
+PAYOUT_ONE_SEVEN   = 10   # one 7️⃣
+PAYOUT_PAIR        = 5    # any pair (no 7️⃣, no double 🅱)
+PAYOUT_NOTHING     = 0    # no match
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
@@ -77,25 +85,25 @@ def calculate_score(  # pylint: disable=too-many-return-statements
         return -(round(base * penalty_mult) + cost)
 
     if r1 == r2 == r3 == 4:
-        return pay(400), f"{reels_str} — JACKPOT! 🎉"
+        return pay(PAYOUT_JACKPOT),     f"{reels_str} — JACKPOT! 🎉"
     if r1 == r2 == r3 == 3:
-        return pay(100), f"{reels_str} — Three lemons!"
+        return pay(PAYOUT_THREE_LEMON), f"{reels_str} — Three lemons!"
     if r1 == r2 == r3 == 2:
-        return pay(100), f"{reels_str} — Three grapes!"
+        return pay(PAYOUT_THREE_GRAPE), f"{reels_str} — Three grapes!"
     if r1 == r2 == r3 == 1:
         return penalty(TRIPLE_BAR_PENALTY), f"{reels_str} — PENALTY! 💸"
 
     sevens = (r1, r2, r3).count(4)
     if sevens == 2:
-        return pay(25), f"{reels_str} — Two sevens!"
+        return pay(PAYOUT_TWO_SEVENS), f"{reels_str} — Two sevens!"
     if sevens == 1:
-        return pay(10), f"{reels_str} — So close! 😤"
+        return pay(PAYOUT_ONE_SEVEN),  f"{reels_str} — So close! 😤"
 
     bars = (r1, r2, r3).count(1)
     if bars == 2:
         return penalty(DOUBLE_BAR_PENALTY), f"{reels_str} — Double BAR penalty! 💸"
 
     if r1 == r2 or r2 == r3 or r1 == r3:
-        return pay(5), f"{reels_str} — Pair!"
+        return pay(PAYOUT_PAIR),    f"{reels_str} — Pair!"
 
-    return pay(0), f"{reels_str} — No luck this time."
+    return pay(PAYOUT_NOTHING), f"{reels_str} — No luck this time."

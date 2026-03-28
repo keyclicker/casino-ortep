@@ -1,5 +1,10 @@
 import pytest
-from casino import SPIN_COST, calculate_score, decode_reels
+from casino import (
+    SPIN_COST, TRIPLE_BAR_PENALTY, DOUBLE_BAR_PENALTY,
+    PAYOUT_JACKPOT, PAYOUT_THREE_LEMON, PAYOUT_THREE_GRAPE,
+    PAYOUT_TWO_SEVENS, PAYOUT_ONE_SEVEN, PAYOUT_PAIR, PAYOUT_NOTHING,
+    calculate_score, decode_reels,
+)
 
 # Helper: encode reels back to a dice value
 def encode(r1, r2, r3) -> int:
@@ -26,17 +31,17 @@ class TestDecodeReels:
 class TestCalculateScore:
     def test_jackpot(self):
         net, desc = calculate_score(encode(4, 4, 4))
-        assert net == 400 - SPIN_COST
+        assert net == PAYOUT_JACKPOT - SPIN_COST
         assert "JACKPOT" in desc
 
     def test_three_lemons(self):
         net, desc = calculate_score(encode(3, 3, 3))
-        assert net == 100 - SPIN_COST
+        assert net == PAYOUT_THREE_LEMON - SPIN_COST
         assert "lemon" in desc.lower()
 
     def test_three_grapes(self):
         net, desc = calculate_score(encode(2, 2, 2))
-        assert net == 100 - SPIN_COST
+        assert net == PAYOUT_THREE_GRAPE - SPIN_COST
         assert "grape" in desc.lower()
 
     def test_triple_bar_penalty(self):
@@ -61,7 +66,7 @@ class TestCalculateScore:
     ])
     def test_two_sevens(self, reels):
         net, desc = calculate_score(encode(*reels))
-        assert net == 25 - SPIN_COST
+        assert net == PAYOUT_TWO_SEVENS - SPIN_COST
         assert "two sevens" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
@@ -71,7 +76,7 @@ class TestCalculateScore:
     ])
     def test_one_seven(self, reels):
         net, desc = calculate_score(encode(*reels))
-        assert net == 10 - SPIN_COST
+        assert net == PAYOUT_ONE_SEVEN - SPIN_COST
         assert "close" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
@@ -81,7 +86,7 @@ class TestCalculateScore:
     ])
     def test_pair_no_seven(self, reels):
         net, desc = calculate_score(encode(*reels))
-        assert net == 5 - SPIN_COST
+        assert net == PAYOUT_PAIR - SPIN_COST
         assert "pair" in desc.lower()
 
     @pytest.mark.parametrize("reels", [
