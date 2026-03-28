@@ -3,29 +3,32 @@
 # Each reel has 4 symbols: BAR=1, GRAPE=2, LEMON=3, SEVEN=4
 # Encoding: value = (r1-1)*16 + (r2-1)*4 + (r3-1) + 1
 #
-# Base math (64 equally likely outcomes, tier 0, balance < 500):
-#   Spin cost: $10. Expected return: $12.97  →  E[net] = +$2.97 per spin (player advantage)
+# Base math — 64 equally likely outcomes, tier 0 (balance < TIER_BALANCE_CAP):
 #
-# Outcome         count   return   net      contribution
-# 7️⃣7️⃣7️⃣           1      $300    +$290     +$290
-# 🍋🍋🍋 / 🍇🍇🍇   1 each   $50    +$40      +$40 × 2
-# 🅱🅱🅱            1       $25    +$15      +$15
-# Two 7️⃣          9       $20    +$10      +$10 × 9  = +$90
-# One 7️⃣         27        $5    -$5       -$5  × 27 = -$135
-# Pair (no 7️⃣)   18        $5    -$5       -$5  × 18 = -$90
-# Nothing         6        $0    -$10      -$10 × 6  = -$60
-#                                           ------------------
-#                                 total:    +$475 paid, -$285 collected
-#                                 ratio:    0.60  (casino pays out 40% more than it collects)
+# Outcome                 count  payout    net      contribution
+# 7️⃣7️⃣7️⃣ (jackpot)        1     $500    +$490         +$490
+# 🍋🍋🍋                   1     $250    +$240         +$240
+# 🍇🍇🍇                   1     $100     +$90          +$90
+# Two 7️⃣                  9      $25     +$15         +$135
+# One 7️⃣                 27      $10       $0            $0
+# 🅱🅱🅱 (penalty)          1       —      -$60          -$60
+# Two 🅱 (penalty)         6       —      -$25         -$150
+# Pair (no 7️⃣/🅱🅱)       12       $5      -$5          -$60
+# No match                 6       —      -$10          -$60
+#                                                    ────────
+#                                   E[net per spin]:  +$9.77  (player-favoured)
 #
-# Tier scaling (every TIER_BALANCE_CAP):
-#   tier = balance // TIER_BALANCE_CAP
-#   cost = SPIN_COST × TIER_COST_MULT^tier
-#   win_mult = TIER_WIN_MULT^tier
-#   balance ≥ 500  → tier 1: cost $20,  wins ×1.8
-#   balance ≥ 1000 → tier 2: cost $40,  wins ×3.24
-#   balance ≥ 1500 → tier 3: cost $80,  wins ×5.83
-#   ...
+# Tier scaling — every TIER_BALANCE_CAP coins the stakes increase:
+#   tier         = balance // TIER_BALANCE_CAP
+#   cost         = SPIN_COST      × TIER_COST_MULT    ^ tier
+#   win_mult     = TIER_WIN_MULT  ^ tier
+#   penalty_mult = TIER_PENALTY_MULT ^ tier
+#
+# Examples (TIER_BALANCE_CAP=250, TIER_COST_MULT=1.5, TIER_WIN_MULT=1.4):
+#   balance   0–249  → tier 0: cost $10, wins ×1.0
+#   balance 250–499  → tier 1: cost $15, wins ×1.4
+#   balance 500–749  → tier 2: cost $22, wins ×1.96
+#   balance 750+     → tier 3: cost $34, wins ×2.74  …
 
 SPIN_COST = 10
 HOURLY_DEPOSIT = 20
