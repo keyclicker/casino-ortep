@@ -1,4 +1,5 @@
 """Telegram command and message handlers."""
+import html
 import logging
 import time
 
@@ -255,18 +256,20 @@ async def cmd_history(  # pylint: disable=unused-argument
             return f"{arrow} {who}"
         return e.memo
 
+    # HTML (not Markdown): memos carry arbitrary outcome text + usernames, which
+    # routinely break Telegram's fragile legacy Markdown parser.
     def _line(e) -> str:
         icon = _KIND_ICON.get(e.kind, "•")
         amount = f"+${e.amount}" if e.amount >= 0 else f"−${-e.amount}"
         memo = _memo(e)
-        memo_part = f" _{escape_markdown(memo)}_" if memo else ""
-        return f"{icon} *{amount}*{memo_part}"
+        memo_part = f" <i>{html.escape(memo)}</i>" if memo else ""
+        return f"{icon} <b>{amount}</b>{memo_part}"
 
     lines = "\n".join(_line(e) for e in entries)
     await reply(
         update.effective_message,
-        f"🧾 *Recent activity*\n{lines}",
-        parse_mode="Markdown",
+        f"🧾 <b>Recent activity</b>\n{lines}",
+        parse_mode="HTML",
     )
 
 

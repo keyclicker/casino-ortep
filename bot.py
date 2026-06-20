@@ -75,11 +75,26 @@ async def _post_init(app) -> None:
     logger.info("Bot ready: @%s (id=%d)", bot_info.username, bot_info.id)
 
 
+async def _on_error(update: object, context) -> None:
+    """Log any unhandled handler exception (and tell the user something broke)."""
+    logger.error(
+        "Unhandled error while processing update: %r", update, exc_info=context.error
+    )
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Something went wrong handling that. Try again."
+            )
+        except Exception:  # pylint: disable=broad-except
+            pass  # never let the error handler itself raise
+
+
 def main() -> None:
     """Initialise the DB, register all handlers, and start long-polling."""
     db.init_db()
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(_post_init).build()
+    app.add_error_handler(_on_error)
 
     # Slot machine — must come before command handlers so it's checked first.
     app.add_handler(MessageHandler(
