@@ -17,9 +17,9 @@ import db
 from filters import CasinoFilter
 from handlers import (
     handle_slot,
-    cmd_give, cmd_stats,
+    cmd_give, cmd_stats, cmd_history,
     cmd_settopic, cmd_unsettopic, cmd_casino, cmd_casinostats,
-    cmd_dodep, cmd_balances,
+    cmd_dodep, cmd_balances, cmd_all_balances,
 )
 from jobs import job_hourly_deposit, reveal_message
 
@@ -44,7 +44,8 @@ async def _post_init(app) -> None:
     """Register bot commands, schedule jobs, and re-queue pending reveals."""
     await app.bot.set_my_commands([
         ("stats",       "Show your balance and win/loss statistics"),
-        ("balances",    "Show the leaderboard of all players"),
+        ("history",     "Show your recent transactions"),
+        ("balances",    "Show this group's leaderboard"),
         ("give",        "Send coins to another player"),
         ("casinostats", "Show casino win/loss totals"),
         ("casino",      "Show where the casino is active"),
@@ -88,6 +89,7 @@ def main() -> None:
 
     # Player commands
     app.add_handler(CommandHandler("stats",       cmd_stats))
+    app.add_handler(CommandHandler("history",     cmd_history))
     app.add_handler(CommandHandler("casinostats", cmd_casinostats))
     app.add_handler(CommandHandler("give",        cmd_give))
 
@@ -99,6 +101,7 @@ def main() -> None:
     # Bot-admin commands (silently ignored for non-admins)
     app.add_handler(CommandHandler("dodep",       cmd_dodep))
     app.add_handler(CommandHandler("balances",    cmd_balances))
+    app.add_handler(CommandHandler("all_balances", cmd_all_balances))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

@@ -1,10 +1,11 @@
-import pytest
+import math
+
+import casino
 from casino import (
-    SPIN_COST, TRIPLE_BAR_PENALTY, DOUBLE_BAR_PENALTY,
-    PAYOUT_JACKPOT, PAYOUT_THREE_LEMON, PAYOUT_THREE_GRAPE,
-    PAYOUT_TWO_SEVENS, PAYOUT_ONE_SEVEN, PAYOUT_PAIR, PAYOUT_NOTHING,
-    calculate_score, decode_reels,
+    CDM_MIN, CDM_MAX, SPIN_WINDOW,
+    base_unit, calculate_score, compute_cdm, decode_reels,
 )
+
 
 # Helper: encode reels back to a dice value
 def encode(r1, r2, r3) -> int:
@@ -28,143 +29,159 @@ class TestDecodeReels:
         assert decode_reels(64) == (4, 4, 4)
 
 
+class TestBaseUnit:
+    def test_floor(self):
+        assert base_unit(1) == casino.MIN_UNIT
+        assert base_unit(0) == 0
+
+    def test_scales_with_balance(self):
+        assert base_unit(1000) == round(casino.STAKE_FRAC * 1000)
+        assert base_unit(10_000) > base_unit(1000)
+
+    def test_linear_in_balance(self):
+        assert base_unit(10_000) == 10 * base_unit(1000)
+
+
+class TestComputeCdm:
+    def test_neutral_with_no_history(self):
+        assert compute_cdm(0, 20, 0, 0) == 1.0
+
+    def test_behind_gives_mercy(self):
+        # big recent losses → cdm > 1
+        cdm = compute_cdm(-10 * SPIN_WINDOW * 20, 20, -500, 1000)
+        assert cdm > 1.0
+
+    def test_ahead_gives_clawback(self):
+        # big recent wins → cdm < 1
+        cdm = compute_cdm(10 * SPIN_WINDOW * 20, 20, 500, 1000)
+        assert cdm < 1.0
+
+    def test_bounded(self):
+        lo = compute_cdm(10**9, 20, 10**9, 1)
+        hi = compute_cdm(-(10**9), 20, -(10**9), 1)
+        assert lo == CDM_MIN
+        assert hi == CDM_MAX
+
+    def test_monotonic_in_recent(self):
+        cdms = [compute_cdm(r, 20, 0, 0) for r in (-2000, -500, 0, 500, 2000)]
+        assert cdms == sorted(cdms, reverse=True)  # more recent net → lower cdm
+
+    def test_sign_hinge(self):
+        # just above neutral → claw (<1); just below → mercy (>1)
+        assert compute_cdm(1e-6, 20, 0, 0) < 1.0 < compute_cdm(-1e-6, 20, 0, 0)
+
+    def test_mercy_stronger_than_claw_near_zero(self):
+        # symmetric small signals: mercy lifts more than claw cuts (real comebacks)
+        claw = 1 - compute_cdm(24, 20, 0, 0)
+        mercy = compute_cdm(-24, 20, 0, 0) - 1
+        assert mercy > claw > 0
+
+    def test_tiny_base_no_division_error(self):
+        # base 0 is guarded internally; must not raise and stays in band
+        cdm = compute_cdm(-500, 0, -500, 0)
+        assert CDM_MIN <= cdm <= CDM_MAX
+
+
 class TestCalculateScore:
-    def test_jackpot(self):
-        net, desc = calculate_score(encode(4, 4, 4))
-        assert net == PAYOUT_JACKPOT - SPIN_COST
+    B = 100  # base unit used in these tests
+
+    def test_returns_net_price_desc(self):
+        net, price, desc = calculate_score(encode(4, 4, 4), self.B, 1.0)
+        assert isinstance(net, int) and isinstance(price, int) and isinstance(desc, str)
+
+    def test_jackpot_is_big_win(self):
+        net, price, desc = calculate_score(encode(4, 4, 4), self.B, 1.0)
+        assert net > 0
+        assert net == round(casino.WIN_M * casino.G_JACKPOT * self.B) - price
         assert "JACKPOT" in desc
 
     def test_three_lemons(self):
-        net, desc = calculate_score(encode(3, 3, 3))
-        assert net == PAYOUT_THREE_LEMON - SPIN_COST
-        assert "lemon" in desc.lower()
+        net, price, _ = calculate_score(encode(3, 3, 3), self.B, 1.0)
+        assert net == round(casino.WIN_M * casino.G_THREE_LEMON * self.B) - price
 
     def test_three_grapes(self):
-        net, desc = calculate_score(encode(2, 2, 2))
-        assert net == PAYOUT_THREE_GRAPE - SPIN_COST
-        assert "grape" in desc.lower()
+        net, price, _ = calculate_score(encode(2, 2, 2), self.B, 1.0)
+        assert net == round(casino.WIN_M * casino.G_THREE_GRAPE * self.B) - price
 
-    def test_triple_bar_penalty(self):
-        from casino import TRIPLE_BAR_PENALTY
-        net, desc = calculate_score(encode(1, 1, 1))
-        assert net == -(TRIPLE_BAR_PENALTY + SPIN_COST)
+    def test_triple_bar_is_penalty(self):
+        net, price, desc = calculate_score(encode(1, 1, 1), self.B, 1.0)
+        loss = round(casino.PEN_T * casino.G_TRIPLE_BAR * self.B)
+        assert net == -(price + loss)
         assert "PENALTY" in desc
 
-    @pytest.mark.parametrize("reels", [
-        (1, 1, 2), (1, 1, 3), (1, 2, 1), (2, 1, 1),
-    ])
-    def test_double_bar_penalty(self, reels):
-        from casino import DOUBLE_BAR_PENALTY
-        net, desc = calculate_score(encode(*reels))
-        assert net == -(DOUBLE_BAR_PENALTY + SPIN_COST)
-        assert "penalty" in desc.lower()
+    def test_double_bar_is_penalty(self):
+        for reels in [(1, 1, 2), (1, 1, 3), (1, 2, 1), (2, 1, 1)]:
+            net, price, desc = calculate_score(encode(*reels), self.B, 1.0)
+            loss = round(casino.PEN_T * casino.G_DOUBLE_BAR * self.B)
+            assert net == -(price + loss)
+            assert "penalty" in desc.lower()
 
-    @pytest.mark.parametrize("reels", [
-        (4, 4, 1), (4, 4, 2), (4, 4, 3),
-        (4, 1, 4), (4, 2, 4), (4, 3, 4),
-        (1, 4, 4), (2, 4, 4), (3, 4, 4),
-    ])
-    def test_two_sevens(self, reels):
-        net, desc = calculate_score(encode(*reels))
-        assert net == PAYOUT_TWO_SEVENS - SPIN_COST
-        assert "two sevens" in desc.lower()
+    def test_two_sevens(self):
+        for reels in [(4, 4, 1), (4, 1, 4), (1, 4, 4), (4, 4, 3)]:
+            net, price, desc = calculate_score(encode(*reels), self.B, 1.0)
+            assert net == round(casino.WIN_M * casino.G_TWO_SEVENS * self.B) - price
+            assert "two sevens" in desc.lower()
 
-    @pytest.mark.parametrize("reels", [
-        (4, 1, 2), (4, 1, 3), (4, 2, 3),
-        (1, 4, 2), (1, 4, 3), (2, 4, 3),
-        (1, 2, 4), (1, 3, 4), (2, 3, 4),
-    ])
-    def test_one_seven(self, reels):
-        net, desc = calculate_score(encode(*reels))
-        assert net == PAYOUT_ONE_SEVEN - SPIN_COST
+    def test_one_seven_near_break_even(self):
+        net, _, desc = calculate_score(encode(4, 1, 2), self.B, 1.0)
+        assert abs(net) <= self.B  # close to zero either way
         assert "close" in desc.lower()
 
-    @pytest.mark.parametrize("reels", [
-        (2, 2, 1), (2, 2, 3),
-        (3, 3, 1), (3, 3, 2),
-        (2, 1, 2), (1, 2, 2),
-    ])
-    def test_pair_no_seven(self, reels):
-        net, desc = calculate_score(encode(*reels))
-        assert net == PAYOUT_PAIR - SPIN_COST
-        assert "pair" in desc.lower()
-
-    @pytest.mark.parametrize("reels", [
-        (1, 2, 3), (1, 3, 2), (2, 1, 3), (2, 3, 1), (3, 1, 2), (3, 2, 1),
-    ])
-    def test_no_match(self, reels):
-        net, desc = calculate_score(encode(*reels))
-        assert net == -SPIN_COST
+    def test_no_match_loses_only_price(self):
+        net, price, desc = calculate_score(encode(1, 2, 3), self.B, 1.0)
+        assert net == -price
         assert "no luck" in desc.lower()
 
-    def test_all_64_values_return_valid_result(self):
+    def test_all_64_return_integers(self):
         for v in range(1, 65):
-            net, desc = calculate_score(v)
-            assert isinstance(net, int)
-            assert isinstance(desc, str)
+            net, price, desc = calculate_score(v, self.B, 1.0)
+            assert isinstance(net, int) and isinstance(price, int)
+
+    def test_zero_base_spin_is_inert(self):
+        # balance <= 0 → base 0 → every money quantity rounds to 0 (free, no payout)
+        for v in (1, 32, 64):  # penalty, mid, jackpot
+            net, price, _ = calculate_score(v, 0, 1.0)
+            assert net == 0 and price == 0
+
+    def test_net_linear_in_base(self):
+        # at a fixed cdm a 10x base gives ~10x net for the same outcome
+        n1, _, _ = calculate_score(encode(4, 4, 4), 100, 1.0)
+        n10, _, _ = calculate_score(encode(4, 4, 4), 1000, 1.0)
+        assert math.isclose(n10, 10 * n1, rel_tol=0.01)
+
+    def test_high_cdm_cheaper_price(self):
+        _, p_lo, _ = calculate_score(encode(1, 2, 3), self.B, CDM_MAX)
+        _, p_hi, _ = calculate_score(encode(1, 2, 3), self.B, CDM_MIN)
+        assert p_lo < p_hi  # mercy (high cdm) → cheaper spin
+
+    def test_high_cdm_bigger_win_smaller_penalty(self):
+        win_lo, _, _ = calculate_score(encode(4, 4, 4), self.B, CDM_MIN)
+        win_hi, _, _ = calculate_score(encode(4, 4, 4), self.B, CDM_MAX)
+        assert win_hi > win_lo
+        pen_lo, _, _ = calculate_score(encode(1, 1, 1), self.B, CDM_MIN)
+        pen_hi, _, _ = calculate_score(encode(1, 1, 1), self.B, CDM_MAX)
+        assert pen_hi > pen_lo  # less negative = softer penalty under mercy
 
 
 class TestHouseEdge:
-    def test_all_outcomes_return_integers(self):
-        """All 64 outcomes must produce integer net values (no rounding errors)."""
-        for v in range(1, 65):
-            net, _ = calculate_score(v)
-            assert isinstance(net, int)
+    B = 10_000  # large base to suppress rounding noise in the EV estimate
 
-    def test_reference_balance_is_neutral(self):
-        """At BALANCE_REF the cost is the base and both multipliers are 1.0."""
-        from casino import get_spin_params, SPIN_COST, BALANCE_REF
-        cost, win_mult, pen_mult, _ = get_spin_params(BALANCE_REF)
-        assert cost == SPIN_COST
-        assert abs(win_mult - 1.0) < 1e-9
-        assert abs(pen_mult - 1.0) < 1e-9
+    def ev(self, cdm):
+        """Average player net per spin over all 64 equally-likely outcomes."""
+        total = sum(calculate_score(v, self.B, cdm)[0] for v in range(1, 65))
+        return total / 64 / self.B  # in units of base B
 
-    def test_cost_grows_super_linearly(self):
-        """Cost rises faster than linear (COST_EXP > 1) but stays a power law, not exponential."""
-        from casino import get_spin_params, BALANCE_REF
-        c1, *_ = get_spin_params(BALANCE_REF)
-        c10, *_ = get_spin_params(BALANCE_REF * 10)
-        c100, *_ = get_spin_params(BALANCE_REF * 100)
-        # 10x balance -> more than 10x cost (super-linear)
-        assert c10 > c1 * 10
-        # but the growth ratio is bounded/stable (power law), not accelerating like an exponential
-        assert (c100 / c10) < (c10 / c1) * 2
+    def test_small_house_edge_at_neutral(self):
+        ev = self.ev(1.0)
+        assert ev < 0                 # house-favoured at cdm=1
+        assert ev > -0.06             # but only slightly (small advantage)
 
-    def test_cost_never_exceeds_half_balance(self):
-        from casino import get_spin_params, COST_CAP_FRAC
-        for bal in (50, 100, 500, 2000, 50_000, 500_000):
-            cost, *_ = get_spin_params(bal)
-            assert cost <= bal * COST_CAP_FRAC
+    def test_mercy_helps_player(self):
+        assert self.ev(CDM_MAX) > self.ev(1.0)   # behind → better odds
 
-    def test_wins_scale_slower_than_cost(self):
-        """Win multiplier grows, but gentler than cost — so cost overtakes wins."""
-        from casino import get_spin_params, BALANCE_REF
-        c1, w1, *_ = get_spin_params(BALANCE_REF)
-        c10, w10, *_ = get_spin_params(BALANCE_REF * 10)
-        assert w10 > w1                      # wins still grow (taste of victory)
-        assert (c10 / c1) > (w10 / w1)       # but cost grows faster
+    def test_clawback_hurts_player(self):
+        assert self.ev(CDM_MIN) < self.ev(1.0)   # ahead → worse odds
 
-    def test_penalty_capped_at_80_percent(self):
-        """Total loss on a penalty spin never exceeds PENALTY_CAP_FRAC of balance."""
-        from casino import (
-            get_spin_params, calculate_score, PENALTY_CAP_FRAC,
-        )
-        for bal in (200, 1000, 5000, 50_000):
-            cost, win_mult, pen_mult, pen_cap = get_spin_params(bal)
-            triple, _ = calculate_score(encode(1, 1, 1), cost, win_mult, pen_mult, pen_cap)
-            assert -triple <= bal * PENALTY_CAP_FRAC
-
-    def test_house_edge_flips_with_balance(self):
-        """Player-favoured (EV>0) at low balance, house-favoured (EV<0) at high balance."""
-        from casino import get_spin_params, calculate_score
-
-        def ev(bal):
-            cost, win_mult, pen_mult, pen_cap = get_spin_params(bal)
-            total = sum(
-                calculate_score(v, cost, win_mult, pen_mult, pen_cap)[0]
-                for v in range(1, 65)
-            )
-            return total / 64
-
-        assert ev(100) > 0      # new player: player-favoured
-        assert ev(5000) < 0     # whale: house-favoured
+    def test_ev_monotonic_in_cdm(self):
+        evs = [self.ev(c) for c in (CDM_MIN, 0.95, 1.0, 1.1, CDM_MAX)]
+        assert evs == sorted(evs)

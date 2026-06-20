@@ -30,6 +30,19 @@ def ensure_player(user) -> int:
     return db.get_or_create(user.id, user.username or "")
 
 
+def note_membership(update) -> int | None:
+    """Record that the caller plays in this group (no-op outside groups).
+
+    Returns the group id when in a group, else None — handy for scoping queries.
+    """
+    chat = getattr(update, "effective_chat", None)
+    user = getattr(update, "effective_user", None)
+    if chat is None or user is None or chat.type not in ("group", "supergroup"):
+        return None
+    db.record_membership(user.id, chat.id)
+    return chat.id
+
+
 # ── Permissions ────────────────────────────────────────────────────────────
 
 def is_bot_admin(user) -> bool:

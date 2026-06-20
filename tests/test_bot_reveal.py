@@ -170,3 +170,31 @@ class TestHandleSlotSpoiler:
             run(handle_slot(update, ctx))
         assert db.get_pending_reveals() == []
         ctx.application.job_queue.run_once.assert_not_called()
+
+
+class TestHandleSlotLossCap:
+    """End-to-end: the loss cap in handle_slot, against a real (unmocked) db."""
+
+    def test_penalty_is_capped_at_loss_cap_frac(self):
+        # Real player forced to a low balance so a triple-BAR penalty would
+        # otherwise overshoot the cap. dice=1 decodes to (1,1,1) = triple BAR.
+        db.get_or_create(1, "tester")
+        with db.Session(db.engine) as s:
+            s.get(db.Player, 1).balance = 20
+            s.commit()
+
+        update, _ = _make_slot_update(dice_value=1)
+        ctx = _make_slot_context()
+        run(handle_slot(update, ctx))   # apply_spin NOT mocked here
+
+        # Uncapped triple-BAR loss exceeds 50% of $20; cap clamps it to -$10.
+        assert db.get_balance(1) == 20 - round(0.5 * 20)
+
+    def test_loss_cap_never_drives_balance_negative(self):
+        db.get_or_create(2, "tester2")
+        with db.Session(db.engine) as s:
+            s.get(db.Player, 2).balance = 6
+            s.commit()
+        update, _ = _make_slot_update(dice_value=1, user_id=2, username="tester2")
+        run(handle_slot(update, _make_slot_context()))
+        assert db.get_balance(2) >= 0

@@ -1,84 +1,100 @@
-"""Slot-machine logic: decode Telegram dice values and calculate payouts."""
-# Telegram's 🎰 slot machine sends a Dice with value 1-64.
-# Each reel has 4 symbols: BAR=1, GRAPE=2, LEMON=3, SEVEN=4
-# Encoding: value = (r1-1)*16 + (r2-1)*4 + (r3-1) + 1
-#
-# Base math — 64 equally likely outcomes, at the reference balance (BALANCE_REF):
-#
-# Outcome                 count  payout    net      contribution
-# 7️⃣7️⃣7️⃣ (jackpot)        1     $500    +$490         +$490
-# 🍋🍋🍋                   1     $250    +$240         +$240
-# 🍇🍇🍇                   1     $100     +$90          +$90
-# Two 7️⃣                  9      $25     +$15         +$135
-# One 7️⃣                 27      $10       $0            $0
-# 🅱🅱🅱 (penalty)          1       —      -$40          -$40
-# Two 🅱 (penalty)         6       —      -$20         -$120
-# Pair (no 7️⃣/🅱🅱)       12       $5      -$5          -$60
-# No match                 6       —      -$10          -$60
-#                                                    ────────
-#                                   E[net per spin]: +$10.50  (player-favoured)
-#
-# Balance scaling — stakes grow smoothly with balance via gentle power laws
-# (sub-exponential, super-linear). Let s = balance / BALANCE_REF:
-#   cost         = SPIN_COST × s ^ COST_EXP        capped at ½·balance     (≤ half net)
-#   win_mult     =            s ^ WIN_EXP          (sub-cost: wins stay rewarding)
-#   penalty_mult =            s ^ PENALTY_EXP      scales the BAR penalty bases
-#   penalty_cap  = 0.8 × balance                   max total loss on any spin (≤ 80% net)
-#
-# Because win growth (s^0.5) is gentler than cost growth (s^1.3), the per-spin EV
-# starts positive (player-favoured) at low balance and flips negative as balance
-# rises — yet a jackpot still nets positive well past the crossover, so a win after
-# a losing streak still tastes good. The caps are rare safety nets, not the norm:
-# at BALANCE_REF=100 nothing is capped; cost reaches ½·balance only past ~21k.
-#
-# Examples (BALANCE_REF=100, COST_EXP=1.3, WIN_EXP=0.5, PENALTY_EXP=1.2):
-#   balance  100 → cost $10,  win ×1.00,  triple-BAR loss $40
-#   balance  700 → cost $125, win ×2.65,  triple-BAR loss $435
-#   balance 3000 → cost $832, win ×5.48,  triple-BAR loss $2400 (0.8 cap)
+"""Slot-machine logic: decode Telegram dice, size stakes, and score spins.
 
-SPIN_COST = 10           # base spin cost, also the cost floor / reference cost
-HOURLY_DEPOSIT = 20
+The economy runs on **cdm** — "casino dynamic magic" — a per-player multiplier
+driven by the player's own spin history. The three money quantities on a spin
+are linear in a base stake unit `B`, bent by `cdm`:
 
-BALANCE_REF = 100        # reference balance — multipliers are 1.0 and cost = SPIN_COST here
-COST_EXP = 1.3           # cost growth exponent (super-linear, sub-exponential)
-WIN_EXP = 0.5            # win-multiplier growth exponent (gentler than cost)
-PENALTY_EXP = 1.2        # penalty growth exponent
-COST_CAP_FRAC = 0.5      # spin cost never exceeds this fraction of balance
-PENALTY_CAP_FRAC = 0.8   # total loss on a spin never exceeds this fraction of balance
+    price   = PRICE_K · g=1  · B · cdm^(-PRICE_EXP)      # cost to spin
+    payout  = WIN_M   · g_win · B · cdm^(+WIN_EXP)        # credited on a win
+    penalty = PEN_T   · g_pen · B · cdm^(-PRICE_EXP)      # debited on a BAR loss
 
-TRIPLE_BAR_PENALTY = 30   # triple BAR base penalty (loss = round(base * penalty_mult) + cost)
-DOUBLE_BAR_PENALTY = 10   # double BAR base penalty (loss = round(base * penalty_mult) + cost)
+At cdm = 1 the payout factors are tuned so the cost+penalty side slightly
+outweighs the win side — a small, permanent house edge (~ -2% EV per spin).
+That alone guarantees the house wins over a long horizon (gambler's ruin).
 
-PAYOUT_JACKPOT     = 500  # 7️⃣7️⃣7️⃣
-PAYOUT_THREE_LEMON = 250  # 🍋🍋🍋
-PAYOUT_THREE_GRAPE = 100  # 🍇🍇🍇
-PAYOUT_TWO_SEVENS  = 25   # two 7️⃣
-PAYOUT_ONE_SEVEN   = 10   # one 7️⃣
-PAYOUT_PAIR        = 5    # any pair (no 7️⃣, no double 🅱)
-PAYOUT_NOTHING     = 0    # no match
+`cdm` is where the manipulation lives. It reacts to how the player is doing:
+
+    behind  -> cdm > 1  : cheaper spins, bigger wins, softer penalties (MERCY —
+                          a comeback to stop the player quitting)
+    ahead   -> cdm < 1  : pricier spins, smaller wins, harsher penalties (CLAW —
+                          collect the winnings back)
+
+The cdm→EV response is deliberately *damped* (fractional exponents, tight
+[CDM_MIN, CDM_MAX] band): the mathematical edge stays small so players survive
+for thousands of spins, while the *perceived* swing (visibly cheaper spins,
+"hot machine" cues in handlers.py) carries the drama. A per-spin loss cap
+(LOSS_CAP_FRAC, applied by the caller against balance) prevents variance
+wipeouts, so mercy comebacks can actually land.
+
+Pure logic — no DB or telegram imports, directly unit-testable. The caller
+feeds in the player's recent/lifetime history (see db.get_spin_signals).
+"""
+import math
+
+HOURLY_DEPOSIT = 20      # free credits dripped to every player each hour (the faucet)
+
+# --- stake sizing: the base unit B scales with wealth ---
+MIN_UNIT = 5             # floor on the base stake unit
+STAKE_FRAC = 0.05        # base unit ≈ this fraction of balance
+
+# --- base formula weights (cost+penalty side slightly > win side => house edge) ---
+PRICE_K = 1.0
+WIN_M = 1.0
+PEN_T = 1.0
+
+# --- cdm sensitivity (gentle exponents keep the edge small and survivable) ---
+PRICE_EXP = 0.30         # price & penalty scale as cdm ** -PRICE_EXP
+WIN_EXP = 0.33           # payout scales as cdm ** +WIN_EXP
+
+# --- cdm controller ---
+SPIN_WINDOW = 12         # how many recent spins feed the short-term signal
+CDM_MIN = 0.88           # max claw-back (player far ahead)
+CDM_MAX = 1.22           # max mercy (player far behind)
+CLAW_GAIN = 0.30         # strength of claw-back when ahead
+MERCY_GAIN = 0.52        # strength of mercy when behind (stronger: real comebacks)
+LIFE_BLEND = 0.18        # weight of lifetime position vs the recent window
+LIFE_SCALE = 4.0         # amplifies the (small) per-unit lifetime edge signal
+
+# --- safety ---
+LOSS_CAP_FRAC = 0.5      # a single spin never costs more than this fraction of balance
+
+# --- gross payout factors g (multiples of the base unit B) ---
+G_JACKPOT     = 8.0      # 7️⃣7️⃣7️⃣
+G_THREE_LEMON = 4.0      # 🍋🍋🍋
+G_THREE_GRAPE = 3.0      # 🍇🍇🍇
+G_TWO_SEVENS  = 1.8      # two 7️⃣
+G_ONE_SEVEN   = 1.10     # one 7️⃣ (near break-even)
+G_PAIR        = 0.95     # any pair
+# penalty bases
+G_TRIPLE_BAR  = 2.5      # 🅱🅱🅱
+G_DOUBLE_BAR  = 1.2      # two 🅱
 
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
 
-def get_spin_params(balance: int) -> tuple[int, float, float, int]:
-    """Return (spin_cost, win_mult, penalty_mult, penalty_cap) for the given balance.
-
-    All curves are gentle power laws of s = balance / BALANCE_REF (see module header).
-    `spin_cost` is clamped to at most COST_CAP_FRAC of balance; `penalty_cap` is the
-    hard ceiling on total loss for any single spin (PENALTY_CAP_FRAC of balance).
-    """
+def base_unit(balance: int) -> int:
+    """Return the base stake unit B for a balance — stakes grow with wealth."""
     if balance <= 0:
-        return 0, 0.0, 0.0, 0
+        return 0
+    return max(MIN_UNIT, round(STAKE_FRAC * balance))
 
-    scale = balance / BALANCE_REF
-    cost = round(SPIN_COST * scale ** COST_EXP)
-    cost = min(int(balance * COST_CAP_FRAC), max(SPIN_COST, cost))
 
-    win_mult = scale ** WIN_EXP
-    penalty_mult = scale ** PENALTY_EXP
-    penalty_cap = round(balance * PENALTY_CAP_FRAC)
+def compute_cdm(recent_net: float, base: int, life_net: float, life_staked: float) -> float:
+    """Return the casino dynamic magic multiplier for a player's situation.
 
-    return cost, win_mult, penalty_mult, penalty_cap
+    `recent_net` is the summed net of the last SPIN_WINDOW spins; `life_net` /
+    `life_staked` are the player's lifetime net result and total amount staked.
+    Behind (losing) → cdm > 1 (mercy); ahead (winning) → cdm < 1 (claw-back).
+    """
+    base = max(1, base)
+    short = (recent_net / SPIN_WINDOW) / base
+    life = life_net / max(1.0, life_staked)
+    r = (1 - LIFE_BLEND) * short + LIFE_BLEND * (LIFE_SCALE * life)
+    if r >= 0:                              # player ahead → claw back
+        cdm = 1 - CLAW_GAIN * math.tanh(r)
+    else:                                   # player behind → mercy
+        cdm = 1 + MERCY_GAIN * math.tanh(-r)
+    return max(CDM_MIN, min(CDM_MAX, cdm))
 
 
 def decode_reels(value: int) -> tuple[int, int, int]:
@@ -93,48 +109,48 @@ def decode_reels(value: int) -> tuple[int, int, int]:
 
 def calculate_score(  # pylint: disable=too-many-return-statements
     value: int,
-    cost: int = SPIN_COST,
-    win_mult: float = 1.0,
-    penalty_mult: float = 1.0,
-    penalty_cap: int | None = None,
-) -> tuple[int, str]:
-    """Return (net_dollars, description). Net is negative when player loses.
+    base: int,
+    cdm: float = 1.0,
+) -> tuple[int, int, str]:
+    """Return (net, price, description) for a spin.
 
-    `penalty_cap`, when given, caps the *total* loss (penalty base + cost) on a
-    penalty outcome so a single spin never costs more than that many dollars.
+    `base` is the stake unit B (see base_unit); `cdm` bends the economy. `price`
+    is what the spin costs (always paid); `net` is the balance delta (negative on
+    a loss). The caller is responsible for the per-spin loss cap and affordability.
     """
     r1, r2, r3 = decode_reels(value)
     reels_str = " ".join(SYMBOLS[r] for r in (r3, r2, r1))
 
-    def pay(gross: int) -> int:
-        return round(gross * win_mult) - cost
+    price = round(PRICE_K * base * cdm ** (-PRICE_EXP))
 
-    def penalty(base: int) -> int:
-        loss = round(base * penalty_mult) + cost
-        if penalty_cap is not None:
-            loss = min(loss, penalty_cap)
-        return -loss
+    def win(g: float, label: str) -> tuple[int, int, str]:
+        payout = round(WIN_M * g * base * cdm ** WIN_EXP)
+        return payout - price, price, f"{reels_str} — {label}"
+
+    def pen(g: float, label: str) -> tuple[int, int, str]:
+        loss = round(PEN_T * g * base * cdm ** (-PRICE_EXP))
+        return -(price + loss), price, f"{reels_str} — {label}"
 
     if r1 == r2 == r3 == 4:
-        return pay(PAYOUT_JACKPOT),     f"{reels_str} — JACKPOT! 🎉"
+        return win(G_JACKPOT,     "JACKPOT! 🎉")
     if r1 == r2 == r3 == 3:
-        return pay(PAYOUT_THREE_LEMON), f"{reels_str} — Three lemons!"
+        return win(G_THREE_LEMON, "Three lemons!")
     if r1 == r2 == r3 == 2:
-        return pay(PAYOUT_THREE_GRAPE), f"{reels_str} — Three grapes!"
+        return win(G_THREE_GRAPE, "Three grapes!")
     if r1 == r2 == r3 == 1:
-        return penalty(TRIPLE_BAR_PENALTY), f"{reels_str} — PENALTY! 💸"
+        return pen(G_TRIPLE_BAR,  "PENALTY! 💸")
 
     sevens = (r1, r2, r3).count(4)
     if sevens == 2:
-        return pay(PAYOUT_TWO_SEVENS), f"{reels_str} — Two sevens!"
+        return win(G_TWO_SEVENS, "Two sevens!")
     if sevens == 1:
-        return pay(PAYOUT_ONE_SEVEN),  f"{reels_str} — So close! 😤"
+        return win(G_ONE_SEVEN,  "So close! 😤")
 
     bars = (r1, r2, r3).count(1)
     if bars == 2:
-        return penalty(DOUBLE_BAR_PENALTY), f"{reels_str} — Double BAR penalty! 💸"
+        return pen(G_DOUBLE_BAR, "Double BAR penalty! 💸")
 
     if r1 == r2 or r2 == r3 or r1 == r3:
-        return pay(PAYOUT_PAIR),    f"{reels_str} — Pair!"
+        return win(G_PAIR, "Pair!")
 
-    return pay(PAYOUT_NOTHING), f"{reels_str} — No luck this time."
+    return -price, price, f"{reels_str} — No luck this time."

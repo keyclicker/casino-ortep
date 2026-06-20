@@ -7,10 +7,13 @@ from telegram.helpers import escape_markdown
 from telegram.ext import ContextTypes
 
 import db
-from casino import BALANCE_REF, calculate_score, get_spin_params
+from casino import (
+    LOSS_CAP_FRAC, SPIN_WINDOW,
+    base_unit, calculate_score, compute_cdm,
+)
 from helpers import (
     SPOILER_DELAY,
-    display_name, md_name, ensure_player,
+    display_name, md_name, ensure_player, note_membership,
     is_bot_admin, is_chat_admin, reply,
 )
 from jobs import reveal_message
@@ -29,14 +32,19 @@ async def handle_slot(  # pylint: disable=too-many-locals
     name = display_name(user)
 
     balance = ensure_player(user)
-    cost, win_mult, penalty_mult, penalty_cap = get_spin_params(balance)
+    note_membership(update)  # remember this player plays in this group
 
-    net, description = calculate_score(
-        msg.dice.value, cost, win_mult, penalty_mult, penalty_cap
-    )
-    net = max(net, -balance)  # can't lose more than the current balance
+    # cdm — "casino dynamic magic" — reacts to the player's own history: it eases
+    # up (cdm>1) when they're losing and tightens (cdm<1) when they're winning.
+    recent_net, life_net, life_staked = db.get_spin_signals(user.id, SPIN_WINDOW)
+    base = base_unit(balance)
+    cdm = compute_cdm(recent_net, base, life_net, life_staked)
 
-    ok, new_balance = db.apply_spin(user.id, net, cost)
+    net, cost, description = calculate_score(msg.dice.value, base, cdm)
+    # Per-spin loss cap + can't lose more than the current balance.
+    net = max(net, -round(LOSS_CAP_FRAC * balance), -balance)
+
+    ok, new_balance = db.apply_spin(user.id, net, cost, outcome=description)
     if not ok:
         logger.warning(
             "uid=%d %s tried to spin with insufficient funds ($%d)",
@@ -49,13 +57,17 @@ async def handle_slot(  # pylint: disable=too-many-locals
         )
         return
 
+    # "Hot machine" cue: when cdm is generous, advertise it to amplify the
+    # comeback dopamine. When it's tightening (cdm<1), stay quiet.
+    flair = "🔥 " if cdm >= 1.10 else ""
+
     payout = net + cost
     if payout > 0:
-        balance_line       = f"💰 *-${cost}* + *${payout}* => *${new_balance}*"
-        balance_line_plain = f"💰 -${cost} + ${payout} => ${new_balance}"
+        balance_line       = f"{flair}💰 *-${cost}* + *${payout}* => *${new_balance}*"
+        balance_line_plain = f"{flair}💰 -${cost} + ${payout} => ${new_balance}"
     else:
-        balance_line       = f"💰 *-${-net}* => *${new_balance}*"
-        balance_line_plain = f"💰 -${-net} => ${new_balance}"
+        balance_line       = f"{flair}💰 *-${-net}* => *${new_balance}*"
+        balance_line_plain = f"{flair}💰 -${-net} => ${new_balance}"
 
     reveal_text  = f"{description}\n{balance_line}"
     spoiler_text = f"{description}\n{balance_line_plain}"
@@ -79,8 +91,8 @@ async def handle_slot(  # pylint: disable=too-many-locals
     )
 
     logger.info(
-        "uid=%d %s rolled 🎰 level=%d cost=$%d payout=$%d net=$%+d | balance $%d",
-        user.id, name, balance // BALANCE_REF, cost, payout, net, new_balance,
+        "uid=%d %s rolled 🎰 cdm=%.2f base=$%d cost=$%d payout=$%d net=$%+d | balance $%d",
+        user.id, name, cdm, base, cost, payout, net, new_balance,
     )
 
 
@@ -93,6 +105,7 @@ async def cmd_give(  # pylint: disable=too-many-locals,too-many-return-statement
     msg  = update.effective_message
     user = update.effective_user
     ensure_player(user)
+    note_membership(update)
 
     args     = context.args
     reply_to = msg.reply_to_message
@@ -177,10 +190,18 @@ async def cmd_stats(  # pylint: disable=unused-argument
     """Show the caller's balance and win/loss stats."""
     user    = update.effective_user
     balance = ensure_player(user)
+    note_membership(update)
     won, lost = db.get_player_stats(user.id)
     net   = won - lost
     sign  = "+" if net >= 0 else "−"
     ratio = f"{won / lost:.2f}x" if lost else "N/A"
+
+    best, streak_len, streak_win = db.get_player_highlights(user.id)
+    if streak_len == 0:
+        streak = "—"
+    else:
+        streak = f"🔥 {streak_len}W" if streak_win else f"❄️ {streak_len}L"
+
     logger.info("uid=%d %s checked stats: balance=$%d won=$%d lost=$%d",
                 user.id, display_name(user), balance, won, lost)
     await reply(
@@ -188,7 +209,48 @@ async def cmd_stats(  # pylint: disable=unused-argument
         f"📊 {md_name(user)}\n"
         f"Balance: *${balance}*\n"
         f"Won: *${won}* · Lost: *${lost}*\n"
-        f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*",
+        f"Net: *{sign}${abs(net)}* · Win ratio: *{ratio}*\n"
+        f"Best win: *${best}* · Streak: *{streak}*",
+        parse_mode="Markdown",
+    )
+
+
+# Per-ledger-kind icon for the /history feed.
+_KIND_ICON = {
+    db.LedgerKind.SIGNUP:       "🎁",
+    db.LedgerKind.SPIN_COST:    "🎰",
+    db.LedgerKind.SPIN_WIN:     "💰",
+    db.LedgerKind.SPIN_PENALTY: "💥",
+    db.LedgerKind.GIVE_OUT:     "📤",
+    db.LedgerKind.GIVE_IN:      "📥",
+    db.LedgerKind.DODEP_ADMIN:  "🛠",
+    db.LedgerKind.DODEP_CASINO: "⏰",
+}
+
+
+async def cmd_history(  # pylint: disable=unused-argument
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Show the caller's recent transactions from the ledger."""
+    user = update.effective_user
+    ensure_player(user)
+    note_membership(update)
+
+    entries = db.get_ledger(user.id, limit=12)
+    if not entries:
+        await reply(update.effective_message, "🧾 No activity yet — spin to get started!")
+        return
+
+    def _line(e) -> str:
+        icon = _KIND_ICON.get(e.kind, "•")
+        amount = f"+${e.amount}" if e.amount >= 0 else f"−${-e.amount}"
+        memo = f" _{escape_markdown(e.memo)}_" if e.memo else ""
+        return f"{icon} *{amount}*{memo}"
+
+    lines = "\n".join(_line(e) for e in entries)
+    await reply(
+        update.effective_message,
+        f"🧾 *Recent activity*\n{lines}",
         parse_mode="Markdown",
     )
 
@@ -385,25 +447,48 @@ async def cmd_dodep(  # pylint: disable=too-many-locals
         )
 
 
-async def cmd_balances(  # pylint: disable=unused-argument
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """List all players sorted by balance descending."""
-    players = db.get_all_players_by_balance()
-    if not players:
-        await reply(update.effective_message, "No players yet.")
-        return
-
-    def _ratio(p) -> str:
-        return f"{p.total_won / p.total_lost:.2f}x" if p.total_lost else "N/A"
+def _format_leaderboard(rows: list, title: str) -> str:
+    """Render leaderboard rows (player, won, lost) as a Markdown list."""
+    def _ratio(won: int, lost: int) -> str:
+        return f"{won / lost:.2f}x" if lost else "N/A"
 
     lines = [
         f"{i}. {escape_markdown(p.username) if p.username else str(p.user_id)}"
-        f" — *${p.balance}* _({_ratio(p)})_"
-        for i, p in enumerate(players, 1)
+        f" — *${p.balance}* _({_ratio(won, lost)})_"
+        for i, (p, won, lost) in enumerate(rows, 1)
     ]
+    return f"👥 *{title} ({len(lines)})*\n" + "\n".join(lines)
+
+
+async def cmd_balances(  # pylint: disable=unused-argument
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Leaderboard of the players active in the current group."""
+    msg = update.effective_message
+    group_id = note_membership(update)  # also records the caller as a member
+    if group_id is None:
+        await reply(msg, "🎰 Use /balances inside a casino group to see its leaderboard.")
+        return
+
+    rows = db.get_leaderboard(group_id)
+    if not rows:
+        await reply(msg, "No players here yet.")
+        return
+    await reply(msg, _format_leaderboard(rows, "Players here"), parse_mode="Markdown")
+
+
+async def cmd_all_balances(  # pylint: disable=unused-argument
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """[Admin] Global leaderboard across every player."""
+    if not is_bot_admin(update.effective_user):
+        return
+    rows = db.get_leaderboard()
+    if not rows:
+        await reply(update.effective_message, "No players yet.")
+        return
     await reply(
         update.effective_message,
-        f"👥 *Players ({len(players)})*\n" + "\n".join(lines),
+        _format_leaderboard(rows, "All players"),
         parse_mode="Markdown",
     )
