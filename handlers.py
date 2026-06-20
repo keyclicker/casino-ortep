@@ -7,7 +7,7 @@ from telegram.helpers import escape_markdown
 from telegram.ext import ContextTypes
 
 import db
-from casino import TIER_BALANCE_CAP, calculate_score, get_spin_params
+from casino import BALANCE_REF, calculate_score, get_spin_params
 from helpers import (
     SPOILER_DELAY,
     display_name, md_name, ensure_player,
@@ -29,9 +29,11 @@ async def handle_slot(  # pylint: disable=too-many-locals
     name = display_name(user)
 
     balance = ensure_player(user)
-    cost, win_mult, penalty_mult = get_spin_params(balance)
+    cost, win_mult, penalty_mult, penalty_cap = get_spin_params(balance)
 
-    net, description = calculate_score(msg.dice.value, cost, win_mult, penalty_mult)
+    net, description = calculate_score(
+        msg.dice.value, cost, win_mult, penalty_mult, penalty_cap
+    )
     net = max(net, -balance)  # can't lose more than the current balance
 
     ok, new_balance = db.apply_spin(user.id, net, cost)
@@ -77,8 +79,8 @@ async def handle_slot(  # pylint: disable=too-many-locals
     )
 
     logger.info(
-        "uid=%d %s rolled 🎰 tier=%d cost=$%d payout=$%d net=$%+d | balance $%d",
-        user.id, name, balance // TIER_BALANCE_CAP, cost, payout, net, new_balance,
+        "uid=%d %s rolled 🎰 level=%d cost=$%d payout=$%d net=$%+d | balance $%d",
+        user.id, name, balance // BALANCE_REF, cost, payout, net, new_balance,
     )
 
 

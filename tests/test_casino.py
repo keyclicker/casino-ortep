@@ -111,30 +111,60 @@ class TestHouseEdge:
             net, _ = calculate_score(v)
             assert isinstance(net, int)
 
-    def test_tier_scaling_doubles_cost(self):
-        from casino import get_spin_params, SPIN_COST, TIER_BALANCE_CAP, TIER_COST_MULT
-        cost0, _, _ = get_spin_params(0)
-        cost1, _, _ = get_spin_params(TIER_BALANCE_CAP)
-        assert cost0 == SPIN_COST
-        assert cost1 == SPIN_COST * TIER_COST_MULT
+    def test_reference_balance_is_neutral(self):
+        """At BALANCE_REF the cost is the base and both multipliers are 1.0."""
+        from casino import get_spin_params, SPIN_COST, BALANCE_REF
+        cost, win_mult, pen_mult, _ = get_spin_params(BALANCE_REF)
+        assert cost == SPIN_COST
+        assert abs(win_mult - 1.0) < 1e-9
+        assert abs(pen_mult - 1.0) < 1e-9
 
-    def test_tier_scaling_multiplies_wins(self):
-        from casino import get_spin_params, TIER_BALANCE_CAP, TIER_WIN_MULT
-        _, mult0, _ = get_spin_params(0)
-        _, mult1, _ = get_spin_params(TIER_BALANCE_CAP)
-        assert mult0 == 1.0
-        assert abs(mult1 - TIER_WIN_MULT) < 1e-9
+    def test_cost_grows_super_linearly(self):
+        """Cost rises faster than linear (COST_EXP > 1) but stays a power law, not exponential."""
+        from casino import get_spin_params, BALANCE_REF
+        c1, *_ = get_spin_params(BALANCE_REF)
+        c10, *_ = get_spin_params(BALANCE_REF * 10)
+        c100, *_ = get_spin_params(BALANCE_REF * 100)
+        # 10x balance -> more than 10x cost (super-linear)
+        assert c10 > c1 * 10
+        # but the growth ratio is bounded/stable (power law), not accelerating like an exponential
+        assert (c100 / c10) < (c10 / c1) * 2
 
-    def test_tier_scaling_multiplies_penalties(self):
-        from casino import get_spin_params, TIER_BALANCE_CAP, TIER_PENALTY_MULT
-        _, _, pmult0 = get_spin_params(0)
-        _, _, pmult1 = get_spin_params(TIER_BALANCE_CAP)
-        assert pmult0 == 1.0
-        assert abs(pmult1 - TIER_PENALTY_MULT) < 1e-9
+    def test_cost_never_exceeds_half_balance(self):
+        from casino import get_spin_params, COST_CAP_FRAC
+        for bal in (50, 100, 500, 2000, 50_000, 500_000):
+            cost, *_ = get_spin_params(bal)
+            assert cost <= bal * COST_CAP_FRAC
 
-    def test_tier_boundary(self):
-        from casino import get_spin_params, SPIN_COST, TIER_BALANCE_CAP, TIER_COST_MULT
-        cost_below, _, _ = get_spin_params(TIER_BALANCE_CAP - 1)
-        cost_at, _, _    = get_spin_params(TIER_BALANCE_CAP)
-        assert cost_below == SPIN_COST
-        assert cost_at    == SPIN_COST * TIER_COST_MULT
+    def test_wins_scale_slower_than_cost(self):
+        """Win multiplier grows, but gentler than cost — so cost overtakes wins."""
+        from casino import get_spin_params, BALANCE_REF
+        c1, w1, *_ = get_spin_params(BALANCE_REF)
+        c10, w10, *_ = get_spin_params(BALANCE_REF * 10)
+        assert w10 > w1                      # wins still grow (taste of victory)
+        assert (c10 / c1) > (w10 / w1)       # but cost grows faster
+
+    def test_penalty_capped_at_80_percent(self):
+        """Total loss on a penalty spin never exceeds PENALTY_CAP_FRAC of balance."""
+        from casino import (
+            get_spin_params, calculate_score, PENALTY_CAP_FRAC,
+        )
+        for bal in (200, 1000, 5000, 50_000):
+            cost, win_mult, pen_mult, pen_cap = get_spin_params(bal)
+            triple, _ = calculate_score(encode(1, 1, 1), cost, win_mult, pen_mult, pen_cap)
+            assert -triple <= bal * PENALTY_CAP_FRAC
+
+    def test_house_edge_flips_with_balance(self):
+        """Player-favoured (EV>0) at low balance, house-favoured (EV<0) at high balance."""
+        from casino import get_spin_params, calculate_score
+
+        def ev(bal):
+            cost, win_mult, pen_mult, pen_cap = get_spin_params(bal)
+            total = sum(
+                calculate_score(v, cost, win_mult, pen_mult, pen_cap)[0]
+                for v in range(1, 65)
+            )
+            return total / 64
+
+        assert ev(100) > 0      # new player: player-favoured
+        assert ev(5000) < 0     # whale: house-favoured

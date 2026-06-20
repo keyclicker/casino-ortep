@@ -3,7 +3,7 @@
 # Each reel has 4 symbols: BAR=1, GRAPE=2, LEMON=3, SEVEN=4
 # Encoding: value = (r1-1)*16 + (r2-1)*4 + (r3-1) + 1
 #
-# Base math — 64 equally likely outcomes, tier 0 (balance < TIER_BALANCE_CAP):
+# Base math — 64 equally likely outcomes, at the reference balance (BALANCE_REF):
 #
 # Outcome                 count  payout    net      contribution
 # 7️⃣7️⃣7️⃣ (jackpot)        1     $500    +$490         +$490
@@ -11,35 +11,43 @@
 # 🍇🍇🍇                   1     $100     +$90          +$90
 # Two 7️⃣                  9      $25     +$15         +$135
 # One 7️⃣                 27      $10       $0            $0
-# 🅱🅱🅱 (penalty)          1       —      -$60          -$60
-# Two 🅱 (penalty)         6       —      -$25         -$150
+# 🅱🅱🅱 (penalty)          1       —      -$40          -$40
+# Two 🅱 (penalty)         6       —      -$20         -$120
 # Pair (no 7️⃣/🅱🅱)       12       $5      -$5          -$60
 # No match                 6       —      -$10          -$60
 #                                                    ────────
-#                                   E[net per spin]:  +$9.77  (player-favoured)
+#                                   E[net per spin]: +$10.50  (player-favoured)
 #
-# Tier scaling — every TIER_BALANCE_CAP coins the stakes increase:
-#   tier         = balance // TIER_BALANCE_CAP
-#   cost         = SPIN_COST      × TIER_COST_MULT    ^ tier
-#   win_mult     = TIER_WIN_MULT  ^ tier
-#   penalty_mult = TIER_PENALTY_MULT ^ tier
+# Balance scaling — stakes grow smoothly with balance via gentle power laws
+# (sub-exponential, super-linear). Let s = balance / BALANCE_REF:
+#   cost         = SPIN_COST × s ^ COST_EXP        capped at ½·balance     (≤ half net)
+#   win_mult     =            s ^ WIN_EXP          (sub-cost: wins stay rewarding)
+#   penalty_mult =            s ^ PENALTY_EXP      scales the BAR penalty bases
+#   penalty_cap  = 0.8 × balance                   max total loss on any spin (≤ 80% net)
 #
-# Examples (TIER_BALANCE_CAP=250, TIER_COST_MULT=1.5, TIER_WIN_MULT=1.4):
-#   balance   0–249  → tier 0: cost $10, wins ×1.0
-#   balance 250–499  → tier 1: cost $15, wins ×1.4
-#   balance 500–749  → tier 2: cost $22, wins ×1.96
-#   balance 750+     → tier 3: cost $34, wins ×2.74  …
+# Because win growth (s^0.5) is gentler than cost growth (s^1.3), the per-spin EV
+# starts positive (player-favoured) at low balance and flips negative as balance
+# rises — yet a jackpot still nets positive well past the crossover, so a win after
+# a losing streak still tastes good. The caps are rare safety nets, not the norm:
+# at BALANCE_REF=100 nothing is capped; cost reaches ½·balance only past ~21k.
+#
+# Examples (BALANCE_REF=100, COST_EXP=1.3, WIN_EXP=0.5, PENALTY_EXP=1.2):
+#   balance  100 → cost $10,  win ×1.00,  triple-BAR loss $40
+#   balance  700 → cost $125, win ×2.65,  triple-BAR loss $435
+#   balance 3000 → cost $832, win ×5.48,  triple-BAR loss $2400 (0.8 cap)
 
-SPIN_COST = 10
+SPIN_COST = 10           # base spin cost, also the cost floor / reference cost
 HOURLY_DEPOSIT = 20
 
-TIER_BALANCE_CAP = 100    # balance threshold per tier step
-TIER_COST_MULT = 1.1      # cost multiplier per tier
-TIER_WIN_MULT = 1.075       # win multiplier per tier
-TIER_PENALTY_MULT = 1.15   # penalty multiplier per tier
+BALANCE_REF = 100        # reference balance — multipliers are 1.0 and cost = SPIN_COST here
+COST_EXP = 1.3           # cost growth exponent (super-linear, sub-exponential)
+WIN_EXP = 0.5            # win-multiplier growth exponent (gentler than cost)
+PENALTY_EXP = 1.2        # penalty growth exponent
+COST_CAP_FRAC = 0.5      # spin cost never exceeds this fraction of balance
+PENALTY_CAP_FRAC = 0.8   # total loss on a spin never exceeds this fraction of balance
 
-TRIPLE_BAR_PENALTY = 50   # triple BAR base penalty (net = -(base * penalty_mult + cost))
-DOUBLE_BAR_PENALTY = 15   # double BAR base penalty (net = -(base * penalty_mult + cost))
+TRIPLE_BAR_PENALTY = 30   # triple BAR base penalty (loss = round(base * penalty_mult) + cost)
+DOUBLE_BAR_PENALTY = 10   # double BAR base penalty (loss = round(base * penalty_mult) + cost)
 
 PAYOUT_JACKPOT     = 500  # 7️⃣7️⃣7️⃣
 PAYOUT_THREE_LEMON = 250  # 🍋🍋🍋
@@ -52,16 +60,25 @@ PAYOUT_NOTHING     = 0    # no match
 SYMBOLS = {1: "🅱", 2: "🍇", 3: "🍋", 4: "7️⃣"}
 
 
-def get_spin_params(balance: int) -> tuple[int, float, float]:
-    """Return (spin_cost, win_multiplier, penalty_multiplier) for the given balance tier."""
-    tier = balance // TIER_BALANCE_CAP
-    if tier == 0:
-        return SPIN_COST, 1.0, 1.0
-    return (
-        round(SPIN_COST * (TIER_COST_MULT ** tier)),
-        TIER_WIN_MULT ** tier,
-        TIER_PENALTY_MULT ** tier,
-    )
+def get_spin_params(balance: int) -> tuple[int, float, float, int]:
+    """Return (spin_cost, win_mult, penalty_mult, penalty_cap) for the given balance.
+
+    All curves are gentle power laws of s = balance / BALANCE_REF (see module header).
+    `spin_cost` is clamped to at most COST_CAP_FRAC of balance; `penalty_cap` is the
+    hard ceiling on total loss for any single spin (PENALTY_CAP_FRAC of balance).
+    """
+    if balance <= 0:
+        return 0, 0.0, 0.0, 0
+
+    scale = balance / BALANCE_REF
+    cost = round(SPIN_COST * scale ** COST_EXP)
+    cost = min(int(balance * COST_CAP_FRAC), max(SPIN_COST, cost))
+
+    win_mult = scale ** WIN_EXP
+    penalty_mult = scale ** PENALTY_EXP
+    penalty_cap = round(balance * PENALTY_CAP_FRAC)
+
+    return cost, win_mult, penalty_mult, penalty_cap
 
 
 def decode_reels(value: int) -> tuple[int, int, int]:
@@ -75,9 +92,17 @@ def decode_reels(value: int) -> tuple[int, int, int]:
 
 
 def calculate_score(  # pylint: disable=too-many-return-statements
-    value: int, cost: int = SPIN_COST, win_mult: float = 1.0, penalty_mult: float = 1.0
+    value: int,
+    cost: int = SPIN_COST,
+    win_mult: float = 1.0,
+    penalty_mult: float = 1.0,
+    penalty_cap: int | None = None,
 ) -> tuple[int, str]:
-    """Return (net_dollars, description). Net is negative when player loses."""
+    """Return (net_dollars, description). Net is negative when player loses.
+
+    `penalty_cap`, when given, caps the *total* loss (penalty base + cost) on a
+    penalty outcome so a single spin never costs more than that many dollars.
+    """
     r1, r2, r3 = decode_reels(value)
     reels_str = " ".join(SYMBOLS[r] for r in (r3, r2, r1))
 
@@ -85,7 +110,10 @@ def calculate_score(  # pylint: disable=too-many-return-statements
         return round(gross * win_mult) - cost
 
     def penalty(base: int) -> int:
-        return -(round(base * penalty_mult) + cost)
+        loss = round(base * penalty_mult) + cost
+        if penalty_cap is not None:
+            loss = min(loss, penalty_cap)
+        return -loss
 
     if r1 == r2 == r3 == 4:
         return pay(PAYOUT_JACKPOT),     f"{reels_str} — JACKPOT! 🎉"
