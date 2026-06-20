@@ -388,10 +388,7 @@ async def cmd_dodep(  # pylint: disable=too-many-locals
 async def cmd_balances(  # pylint: disable=unused-argument
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """[Admin] List all players sorted by balance descending."""
-    if not is_bot_admin(update.effective_user):
-        return
-
+    """List all players sorted by balance descending."""
     players = db.get_all_players_by_balance()
     if not players:
         await reply(update.effective_message, "No players yet.")

@@ -44,6 +44,7 @@ async def _post_init(app) -> None:
     """Register bot commands, schedule jobs, and re-queue pending reveals."""
     await app.bot.set_my_commands([
         ("stats",       "Show your balance and win/loss statistics"),
+        ("balances",    "Show the leaderboard of all players"),
         ("give",        "Send coins to another player"),
         ("casinostats", "Show casino win/loss totals"),
         ("casino",      "Show where the casino is active"),

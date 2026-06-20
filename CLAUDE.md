@@ -34,7 +34,7 @@ Single-process Telegram bot. `bot.py` → builds `ApplicationBuilder`, runs `db.
 
 **Topic gating.** `/settopic` (group-admin) binds a group to a single topic thread; `CasinoFilter` enforces it. Without it, the bot responds in all topics of the group.
 
-**Bot-admin commands** (`/dodep`, `/balances`) silently return for non-admins — username match against `BOT_ADMIN` constant in `helpers.py`.
+**Bot-admin commands** (`/dodep`) silently return for non-admins — username match against `BOT_ADMIN` constant in `helpers.py`. `/balances` is public (leaderboard).
 
 ## Tests
 
