@@ -101,6 +101,17 @@ def test_history_lists_recent_entries_with_memo():
     assert "+$60" in text       # the win entry (net + cost)
 
 
+def test_history_resolves_give_counterparty_to_nickname():
+    db.get_or_create(1, "alice")
+    db.get_or_create(2, "bob")
+    db.transfer(1, 2, 10)
+    update, msg = _cmd_update(user_id=1, username="alice", chat_type="private", chat_id=1)
+    run(cmd_history(update, MagicMock()))
+    text = msg.reply_text.call_args.args[0]
+    assert "@bob" in text        # nickname, not the raw id
+    assert "to:2" not in text
+
+
 def test_history_shows_signup_for_fresh_player():
     db.get_or_create(2, "bob")
     update, msg = _cmd_update(user_id=2, username="bob", chat_type="private", chat_id=2)

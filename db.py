@@ -299,6 +299,13 @@ def transfer(from_id: int, to_id: int, amount: int) -> tuple[int, int]:
         return sender.balance, receiver.balance
 
 
+def get_username(user_id: int) -> str:
+    """Return a player's username, or '' if unknown."""
+    with Session(engine) as s:
+        player = s.get(Player, user_id)
+        return player.username if player else ""
+
+
 def get_by_username(username: str) -> Player | None:
     """Look up a player by username (leading @ stripped)."""
     with Session(engine) as s:

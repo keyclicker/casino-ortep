@@ -241,11 +241,26 @@ async def cmd_history(  # pylint: disable=unused-argument
         await reply(update.effective_message, "🧾 No activity yet — spin to get started!")
         return
 
+    def _memo(e) -> str:
+        # /give rows store the counterparty id ("to:42"/"from:42") — show the @name.
+        if e.kind in (db.LedgerKind.GIVE_OUT, db.LedgerKind.GIVE_IN):
+            _, _, raw = e.memo.partition(":")
+            try:
+                other = int(raw)
+            except ValueError:
+                return e.memo
+            name = db.get_username(other)
+            who = f"@{name}" if name else f"#{other}"
+            arrow = "→" if e.kind == db.LedgerKind.GIVE_OUT else "←"
+            return f"{arrow} {who}"
+        return e.memo
+
     def _line(e) -> str:
         icon = _KIND_ICON.get(e.kind, "•")
         amount = f"+${e.amount}" if e.amount >= 0 else f"−${-e.amount}"
-        memo = f" _{escape_markdown(e.memo)}_" if e.memo else ""
-        return f"{icon} *{amount}*{memo}"
+        memo = _memo(e)
+        memo_part = f" _{escape_markdown(memo)}_" if memo else ""
+        return f"{icon} *{amount}*{memo_part}"
 
     lines = "\n".join(_line(e) for e in entries)
     await reply(
